@@ -11,7 +11,7 @@
 // A stale Docker image or a cached script is otherwise invisible: the page
 // looks fine and simply behaves like an older build, which is impossible to
 // tell apart from a bug.  Keep in step with hpa_cellexp/__init__.py.
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.4.0';
 
 // ---------------------------------------------------------------------------
 // state
@@ -774,6 +774,7 @@ const HM = {
   cw: 64,        // width of one gene column
   ch: 20,        // height of one cell line row
   rotated: false,
+  offsets: [0],  // content-space top of each row; organ gaps make it uneven
 };
 
 const ORGAN_COL_WIDTH = 104;
@@ -868,6 +869,57 @@ function showOrganColumn() {
   return state.sort === 'organ' && organGroups().some((g) => g.organ);
 }
 
+// Blank space between organ blocks.  A rule between 16px rows is easy to miss
+// - it was missed, and the sheet got read as one continuous list with the
+// labels floating beside the wrong rows.  Whitespace is the one separator that
+// cannot be mistaken for data, so the groups are held apart instead of ruled.
+const GROUP_GAP = 10;
+
+/** Content-space top edge of every row, plus a terminator at [rows].
+ *
+ *  Rows are no longer at a constant pitch: each organ boundary inserts
+ *  GROUP_GAP.  Everything that maps between rows and pixels - painting, the
+ *  visible-row window, hit testing, the sheet's height - goes through this.
+ */
+function computeRowOffsets() {
+  const rows = state.view.length;
+  const gap = showOrganColumn() ? GROUP_GAP : 0;
+  const starts = new Set();
+  if (gap) organGroups().forEach((g) => { if (g.start > 0) starts.add(g.start); });
+
+  const offsets = new Array(rows + 1);
+  let y = 0;
+  for (let r = 0; r < rows; r += 1) {
+    if (starts.has(r)) y += gap;
+    offsets[r] = y;
+    y += HM.ch;
+  }
+  offsets[rows] = y;
+  HM.offsets = offsets;
+  return offsets;
+}
+
+/** First row whose bottom edge is below `contentY`. */
+function rowAtOrAfter(contentY) {
+  const offsets = HM.offsets;
+  let lo = 0;
+  let hi = offsets.length - 2;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (offsets[mid] + HM.ch > contentY) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
+}
+
+/** Row containing `contentY`, or -1 when it lands in the gap between groups. */
+function rowContaining(contentY) {
+  if (contentY < 0) return -1;
+  const row = rowAtOrAfter(contentY);
+  const top = HM.offsets[row];
+  return contentY >= top && contentY < top + HM.ch ? row : -1;
+}
+
 function renderHeatmap() {
   const data = state.result;
   const viewport = $('hmViewport');
@@ -899,7 +951,8 @@ function renderHeatmap() {
   HM.band = HM.rotated ? 116 : 46;
 
   const contentW = HM.gutter + cols * HM.cw;
-  const contentH = HM.band + rows * HM.ch;
+  // After HM.ch and the organ column are settled: the gaps depend on both.
+  const contentH = HM.band + computeRowOffsets()[rows];
   $('hmSizer').style.width = contentW + 'px';
   $('hmSizer').style.height = contentH + 'px';
 
@@ -943,12 +996,13 @@ function paint(ctx, vw, vh) {
 
   const dark = isDarkMode();
   const maxima = scaleMaxima();
-  const firstRow = Math.max(0, Math.floor(sy / HM.ch));
-  const lastRow = Math.min(rows - 1, Math.ceil((sy + vh - HM.band) / HM.ch));
+  const offsets = HM.offsets;
+  const firstRow = rowAtOrAfter(sy);
+  const lastRow = Math.min(rows - 1, rowAtOrAfter(sy + vh - HM.band));
   const firstCol = Math.max(0, Math.floor(sx / HM.cw));
   const lastCol = Math.min(cols - 1, Math.ceil((sx + vw - HM.gutter) / HM.cw));
 
-  const rowY = (r) => HM.band + r * HM.ch - sy;
+  const rowY = (r) => HM.band + offsets[r] - sy;
   const colX = (c) => HM.gutter + c * HM.cw - sx;
 
   // --- cells ---------------------------------------------------------------
@@ -993,19 +1047,9 @@ function paint(ctx, vw, vh) {
     }
   }
 
-  // organ group separators carried through the plot
-  if (HM.organCol) {
-    ctx.strokeStyle = axis;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    organGroups().forEach((group) => {
-      if (group.start === 0 || group.start < firstRow || group.start > lastRow + 1) return;
-      const y = rowY(group.start) - 0.5;
-      ctx.moveTo(HM.gutter, y);
-      ctx.lineTo(vw, y);
-    });
-    ctx.stroke();
-  }
+  // No rules between organ groups: computeRowOffsets() has already held them
+  // apart with GROUP_GAP of bare surface, which separates without adding ink
+  // that could be mistaken for data.
 
   // hover ring
   if (state.hover && state.hover.kind === 'cell') {
@@ -1027,44 +1071,29 @@ function paint(ctx, vw, vh) {
   ctx.fillRect(0, HM.band, HM.gutter, vh - HM.band);
 
   if (HM.organCol) {
-    ctx.fillStyle = sunk;
-    ctx.fillRect(0, HM.band, HM.organCol, vh - HM.band);
-
     ctx.font = `600 11px ${font}`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.strokeStyle = grid;
-    ctx.lineWidth = 1;
 
-    // Alternating tint behind each group, so a label's block of rows is
-    // something you can see rather than infer from the nearest text.  A
-    // centred label beside 40 rows is genuinely ambiguous otherwise - it was
-    // read as belonging to the rows above it.
-    organGroups().forEach((group, index) => {
-      if (index % 2 === 0) return;
-      if (group.end < firstRow || group.start > lastRow) return;
-      const top = Math.max(rowY(group.start), HM.band);
-      const bottom = Math.min(rowY(group.end + 1), vh);
-      if (bottom <= top) return;
-      ctx.fillStyle = surface;
-      ctx.fillRect(0, top, HM.organCol, bottom - top);
-    });
-
+    // One tinted block per group, ending where the group ends.  The block is
+    // the boundary: the gap above and below it is bare surface, so a label can
+    // only ever belong to the rows it sits on.
     organGroups().forEach((group) => {
       if (group.end < firstRow || group.start > lastRow) return;
       const top = rowY(group.start);
-      const bottom = rowY(group.end + 1);
-      if (group.start > 0) {
-        ctx.beginPath();
-        ctx.moveTo(0, top - 0.5);
-        ctx.lineTo(HM.gutter, top - 0.5);
-        ctx.stroke();
-      }
+      const bottom = rowY(group.end) + HM.ch;
+      const clippedTop = Math.max(top, HM.band);
+      const clippedBottom = Math.min(bottom, vh);
+      if (clippedBottom <= clippedTop) return;
+
+      ctx.fillStyle = sunk;
+      ctx.fillRect(0, clippedTop, HM.organCol, clippedBottom - clippedTop);
+
       if (!group.organ) return;
       const y = groupLabelY(top, bottom, HM.band, vh);
       if (y === null) return;
       const label = state.organJa[group.organ] || group.organ;
-      ctx.fillStyle = muted;
+      ctx.fillStyle = ink2;
       ctx.fillText(truncate(ctx, label, HM.organCol - 18), 12, y);
     });
   }
@@ -1209,7 +1238,9 @@ function hitTest(event) {
   const rect = viewport.getBoundingClientRect();
   const x = event.clientX - rect.left;
   const y = event.clientY - rect.top;
-  const row = Math.floor((y - HM.band + viewport.scrollTop) / HM.ch);
+  // Rows are not at a constant pitch once organ gaps are in play, and a
+  // pointer in a gap belongs to no row at all.
+  const row = rowContaining(y - HM.band + viewport.scrollTop);
   const col = Math.floor((x - HM.gutter + viewport.scrollLeft) / HM.cw);
   const inRows = row >= 0 && row < state.view.length;
   const inCols = col >= 0 && col < data.genes.length;

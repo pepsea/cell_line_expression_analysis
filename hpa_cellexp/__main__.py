@@ -127,10 +127,17 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         return 1
 
     print("serving {} on http://{}:{}".format(db_path, args.host, args.port), file=sys.stderr)
-    if args.reload:
-        # reload needs an import string; the env var above carries the path.
-        uvicorn.run("hpa_cellexp.api:app", host=args.host, port=args.port,
-                    reload=True, log_level="info")
+    if args.reload or args.workers > 1:
+        # Both need an import string so uvicorn can re-import in each worker
+        # process; the env var set above carries the database path across.
+        uvicorn.run(
+            "hpa_cellexp.api:app",
+            host=args.host,
+            port=args.port,
+            reload=args.reload,
+            workers=None if args.reload else args.workers,
+            log_level="info",
+        )
     else:
         # Pass the application object so --database applies even though this
         # process may already have imported hpa_cellexp.api.
@@ -140,7 +147,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hpa_cellexp",
         description="Human Protein Atlas cell line expression explorer",
@@ -196,9 +203,20 @@ def main(argv=None) -> int:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
     serve.add_argument("--reload", action="store_true")
+    serve.add_argument(
+        "--workers",
+        type=int,
+        default=int(os.environ.get("HPA_CELLEXP_WORKERS", "1")),
+        help="worker processes (default: %(default)s). The database is opened "
+             "read-only, so workers scale reads safely.",
+    )
     serve.set_defaults(func=_cmd_serve)
 
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
     return args.func(args)
 
 

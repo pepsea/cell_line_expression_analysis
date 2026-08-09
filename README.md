@@ -38,9 +38,85 @@ python3 -m hpa_cellexp serve     # http://127.0.0.1:8000
 > ですが、数値は動作確認のための擬似乱数であり、実測値ではありません。
 > デモ DB を使っている間は画面上部に警告バナーが出続けます。
 
-## 3. 実データを取り込む
+## 3. Docker で常時稼働させる
 
-### 3.1 入力ファイル
+サーバに常設する場合はこちらが簡単です。Python のインストールも不要です。
+
+```bash
+# 1) HPA のファイルを置いたディレクトリを指定して、DB を作る（初回のみ）
+export HPA_SOURCE_DIR=/path/to/hpa-files
+docker compose run --rm build \
+  --expression /source/rna_celline.tsv.zip \
+  --metadata   /source/cell_line_analysis_data.tsv.zip \
+  --tcga       /source/rna_cell_line_tcga_comparison.tsv.zip \
+  --release    "HPA v24"
+
+# 2) 常設起動（以後、ホスト再起動時も自動で立ち上がります）
+docker compose up -d
+
+#    http://localhost:8000
+```
+
+| 設定 | 既定値 | 説明 |
+|---|---|---|
+| `HPA_CELLEXP_PORT` | `8000` | 公開ポート |
+| `HPA_SOURCE_DIR` | `./hpa-source` | HPA ファイルの置き場（`/source` に読み取り専用でマウント） |
+| `HPA_CELLEXP_WORKERS` | `1` | ワーカー数。DB は読み取り専用で開くため安全に増やせます |
+
+- `restart: unless-stopped` — クラッシュ時もホスト再起動時も復帰し、
+  自分で `docker compose stop` したときだけ止まったままになります。
+- **ヘルスチェック**は `/api/health`（ファイルの有無だけ）ではなく `/api/meta`
+  を叩き、実際に DB を開けるかを確認します。DB が古い・壊れている場合は
+  `unhealthy` として現れます。
+- ログは 10 MiB × 3 世代でローテーションします（常設でディスクを食い潰さないため）。
+- データベースは**イメージに含めず** named volume `cellexp-data` に置きます。
+  完全版で 900 MiB 近くあるうえ、データ更新のたびにイメージを作り直さずに済みます。
+
+### 運用コマンド
+
+```bash
+docker compose logs -f web                       # ログ
+docker compose ps                                # 状態（healthy かどうか）
+docker compose up -d --build                     # コード更新後の再デプロイ
+docker compose run --rm demo                     # デモ DB に差し替え
+docker compose run --rm organs --grep caco       # 由来臓器の判定根拠を確認
+docker compose run --rm inspect /source/xxx.zip  # 入力ファイルの列を確認
+```
+
+データを更新するときは `build` を実行してから `docker compose restart web` してください。
+
+### データベースをホスト側に置きたい場合
+
+`docker-compose.yml` の `cellexp-data:/data` を `./data:/data` に変えて、
+コンテナ内ユーザ（uid 10001）が書けるようにします:
+
+```bash
+mkdir -p data && sudo chown -R 10001:10001 data
+```
+
+named volume のままファイルを取り出すこともできます:
+
+```bash
+docker compose cp web:/data/hpa_cellexp.sqlite ./hpa_cellexp.sqlite
+```
+
+### 公開する場合
+
+コンテナは HTTP をそのまま出すだけです。インターネットに出す場合は
+nginx / Caddy / Traefik などのリバースプロキシで TLS を終端し、
+`ports` を `"127.0.0.1:8000:8000"` に絞ってプロキシ経由のみにしてください。
+アプリに認証機能はありません。
+
+> ℹ️ このリポジトリの Docker 構成は、compose ファイルの妥当性・コンテナが実行する
+> コマンド・ヘルスチェックのコマンドまで検証済みですが、**イメージのビルド自体は
+> 未実行**です（作成環境に Docker デーモンが無いため）。
+> 初回は `docker compose build` の出力を確認してください。
+
+---
+
+## 4. 実データを取り込む（Docker を使わない場合）
+
+### 4.1 入力ファイル
 
 HPA の配布ファイル（`.tsv` / `.tsv.zip` / `.tsv.gz` のいずれでも、解凍不要）:
 
@@ -50,7 +126,7 @@ HPA の配布ファイル（`.tsv` / `.tsv.zip` / `.tsv.gz` のいずれでも�
 | `cell_line_analysis_data.tsv` | 細胞株のアノテーション（由来臓器・疾患・種・Cellosaurus ID） | 推奨 |
 | `rna_cell_line_tcga_comparison.tsv` | 細胞株と TCGA がんの類似度 | 任意 |
 
-### 3.2 取り込み
+### 4.2 取り込み
 
 ```bash
 python3 -m hpa_cellexp build \
@@ -73,7 +149,7 @@ python3 -m hpa_cellexp build \
 | 12 遺伝子 × 1,200 細胞株 | 約 22 ms |
 | 200 遺伝子（上限）× 1,200 細胞株 | 約 190 ms |
 
-### 3.3 起動
+### 4.3 起動
 
 ```bash
 python3 -m hpa_cellexp serve --host 0.0.0.0 --port 8000
@@ -145,7 +221,7 @@ HPA の細胞株リソースは全てヒト由来のため、種の列が無い�
 
 ---
 
-## 4. 使い方
+## 5. 使い方
 
 1. 左サイドバーに遺伝子を入力（複数可）。
 2. 指標を選択 — **nTPM** が細胞株間比較の推奨値です。
@@ -162,11 +238,13 @@ HPA の細胞株リソースは全てヒト由来のため、種の列が無い�
 
 **行 = 細胞株、列 = 遺伝子**の縦長レイアウトです。細胞株は数百〜千件、遺伝子は
 数個〜数十個というデータの形に合わせてあり、細胞株名は左端に横書きで並ぶので
-そのまま読めます。遺伝子の列は、細胞株名の右側にある領域の**半分**の幅に
-収まるよう配置します（遺伝子が多い場合は最小列幅が優先され、横スクロールします）。
-幅の比率は `hpa_cellexp/static/app.js` の `PLOT_WIDTH_FRACTION` で変えられます。由来臓器でソートしているときは、さらに左に臓器名がグループ
+そのまま読めます。由来臓器でソートしているときは、さらに左に臓器名がグループ
 見出しとして表示されます。行見出しと列見出しは固定表示のまま、縦にスクロール
 します。セルが十分広いときは数値もセル内に直接表示されます。
+
+遺伝子の列は、細胞株名の右側にある領域の**半分**の幅に収まるよう配置します
+（遺伝子が多い場合は最小列幅が優先され、横スクロールします）。
+幅の比率は `hpa_cellexp/static/app.js` の `PLOT_WIDTH_FRACTION` で変えられます。
 
 ### 並び替え
 
@@ -234,7 +312,7 @@ HEP G2（ALB の大半を占める）、LNCAP（KLK3）、U-138 MG（GFAP）、A
 
 ---
 
-## 5. HTTP API
+## 6. HTTP API
 
 Web UI が使っているものと同じ API を直接叩けます。
 
@@ -256,7 +334,7 @@ curl -X POST localhost:8000/api/expression \
 
 ---
 
-## 6. 構成
+## 7. 構成
 
 ```
 hpa_cellexp/
@@ -275,18 +353,21 @@ hpa_cellexp/
                     tcga_organ.tsv       TCGAがん種 → 臓器
                     labels_ja.tsv        日本語ラベル＋表示順
   static/         フロントエンド（ビルド不要のプレーン HTML/CSS/JS）
-tests/            取り込み・クエリ・API のテスト
+tests/            取り込み・クエリ・API・UI・デプロイ構成のテスト
+Dockerfile          常時稼働用イメージ（アプリのみ。DB は volume）
+docker-compose.yml  web（常設）＋ build / demo / organs / inspect（単発）
 ```
 
 発現テーブルは `PRIMARY KEY (gene_id, cell_line_id)` の `WITHOUT ROWID` テーブルです。
 1遺伝子分の行が物理的に連続して並ぶため、本アプリの中心的なクエリ
 （「この N 個の遺伝子を全細胞株について」）が N 回の範囲スキャンで済みます。
 
-## 7. テスト
+## 8. テスト
 
 ```bash
 python3 tests/test_pipeline.py    # 取り込み・クエリ・API
 python3 tests/test_ui.py          # ブラウザ操作の回帰テスト
+python3 tests/test_deployment.py  # Dockerfile / compose の整合性
 ```
 
 UI テストには Playwright が必要です（未インストールなら自動的にスキップされます）:

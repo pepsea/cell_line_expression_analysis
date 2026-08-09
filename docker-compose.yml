@@ -1,0 +1,93 @@
+# 常時稼働用の構成 / always-on deployment.
+#
+#   1. データベースを作る（初回のみ、データ更新時も）
+#      HPA_SOURCE_DIR=/path/to/hpa-files docker compose run --rm build \
+#        --expression /source/rna_celline.tsv.zip \
+#        --metadata   /source/cell_line_analysis_data.tsv.zip \
+#        --tcga       /source/rna_cell_line_tcga_comparison.tsv.zip \
+#        --release    "HPA v24"
+#
+#   2. 常設起動
+#      docker compose up -d
+#
+#   UI の動作確認だけなら 1 の代わりに:  docker compose run --rm demo
+
+x-common: &common
+  build:
+    context: .
+  image: hpa-cellexp:latest
+  environment:
+    # The path is what makes `serve` and `build` agree on one database.
+    HPA_CELLEXP_DB: /data/hpa_cellexp.sqlite
+  volumes:
+    # Named volume: no host uid/gid juggling, and it survives `down`/rebuilds.
+    # To keep the database on the host instead, replace with a bind mount and
+    # chown it to uid 10001 (see README).
+    - cellexp-data:/data
+    # Your HPA downloads, read-only.  Only the build/demo steps need them.
+    - ${HPA_SOURCE_DIR:-./hpa-source}:/source:ro
+
+services:
+  web:
+    <<: *common
+    container_name: hpa-cellexp
+    # Comes back after a crash and after a host reboot, but stays down if you
+    # deliberately stop it.
+    restart: unless-stopped
+    ports:
+      - "${HPA_CELLEXP_PORT:-8000}:8000"
+    environment:
+      HPA_CELLEXP_DB: /data/hpa_cellexp.sqlite
+      # Reads are served from a read-only SQLite handle, so workers scale
+      # safely. 1 is plenty for a lab-sized deployment.
+      HPA_CELLEXP_WORKERS: ${HPA_CELLEXP_WORKERS:-1}
+    command: ["serve", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import sys, urllib.request
+          sys.exit(0 if urllib.request.urlopen(
+              "http://127.0.0.1:8000/api/meta", timeout=4).status == 200 else 1)
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # One-shot helpers.  The subcommand lives in `entrypoint`, not `command`,
+  # because `docker compose run SERVICE ARGS...` REPLACES command - so with
+  # `command: ["build"]` the subcommand would be dropped the moment you passed
+  # --expression.  As an entrypoint it is always kept and your arguments are
+  # appended to it.
+
+  # Build the database into the same volume the web service reads.
+  build:
+    <<: *common
+    profiles: ["tools"]
+    entrypoint: ["python", "-m", "hpa_cellexp", "build"]
+
+  # Synthetic demo database, for checking the UI without real data.
+  demo:
+    <<: *common
+    profiles: ["tools"]
+    entrypoint: ["python", "-m", "hpa_cellexp", "demo"]
+
+  # Show where each cell line's 由来臓器 came from.
+  organs:
+    <<: *common
+    profiles: ["tools"]
+    entrypoint: ["python", "-m", "hpa_cellexp", "organs"]
+
+  # Print the header and first rows of an input file.
+  inspect:
+    <<: *common
+    profiles: ["tools"]
+    entrypoint: ["python", "-m", "hpa_cellexp", "inspect"]
+
+volumes:
+  cellexp-data:

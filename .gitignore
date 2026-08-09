@@ -17,3 +17,6 @@ venv/
 .pytest_cache/
 .DS_Store
 !data/.gitkeep
+
+# Local mount point for the HPA downloads used by docker compose.
+hpa-source/

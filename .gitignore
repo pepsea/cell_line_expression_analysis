@@ -18,8 +18,14 @@ venv/
 .DS_Store
 !data/.gitkeep
 
-# Local mount point for the HPA downloads used by docker compose.
+# Local mount points used by docker compose.  The override folders are
+# tracked (their READMEs explain what goes in them) but their contents are
+# yours: local TSVs and the ~200 MiB cellosaurus.txt stay out of the repo.
 hpa-source/
+reference/*
+!reference/README.md
+cellosaurus/*
+!cellosaurus/README.md
 
 # Local compose settings (copy from .env.example).
 .env

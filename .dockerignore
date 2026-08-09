@@ -10,6 +10,11 @@ data/
 *.tsv.gz
 !hpa_cellexp/reference/*.tsv
 
+# Override folders are bind-mounted at /reference and /cellosaurus; baking
+# them in would shadow the mount with a stale copy.
+reference/
+cellosaurus/
+
 .git/
 .github/
 __pycache__/

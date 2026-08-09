@@ -18,10 +18,11 @@ import re
 from functools import lru_cache
 from typing import Dict, List, Optional, Tuple
 
-_REFERENCE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reference")
+from .config import reference_path
 
 __all__ = [
     "name_key",
+    "reload",
     "BROAD_ORGANS",
     "is_broad_organ",
     "labels_ja",
@@ -76,6 +77,18 @@ _CVCL_RE = re.compile(r"CVCL[_:]?([0-9A-Z]{4})", re.IGNORECASE)
 _NON_ALNUM_RE = re.compile(r"[^A-Z0-9]+")
 
 
+def reload() -> None:
+    """Drop the cached tables.
+
+    Every reader is memoised for the life of the process, so a reference file
+    edited (or REFERENCE_DIR repointed) after first use would otherwise keep
+    serving the old contents.
+    """
+    for cached in (tcga_organ_map, _tcga_names, labels_ja, _search_terms,
+                   _display_order, _cell_line_organs, _organ_keywords):
+        cached.cache_clear()
+
+
 def name_key(name: Optional[str]) -> str:
     """Collapse a cell line name to letters and digits only, upper-cased.
 
@@ -109,7 +122,9 @@ def natural_key(name: Optional[str]):
 
 
 def _read_tsv(filename: str) -> List[List[str]]:
-    path = os.path.join(_REFERENCE_DIR, filename)
+    # config.reference_path decides packaged copy vs the folder named by
+    # HPA_CELLEXP_REFERENCE_DIR, per file.
+    path = reference_path(filename)
     rows: List[List[str]] = []
     with open(path, "r", encoding="utf-8") as handle:
         for line in handle:

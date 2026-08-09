@@ -23,14 +23,25 @@ x-common: &common
   environment:
     # The path is what makes `serve` and `build` agree on one database.
     HPA_CELLEXP_DB: /data/hpa_cellexp.sqlite
+    # Reference tables (tcga_organ.tsv, labels_ja.tsv, cell_line_organ.tsv,
+    # organ_keywords.tsv) taken from the mounted folder when present, from the
+    # packaged copy otherwise - per file, so overriding one is enough.
+    HPA_CELLEXP_REFERENCE_DIR: /reference
+    # Default for `build --cellosaurus`, so the path is configuration rather
+    # than something to retype.  Harmless if the file is not there.
+    HPA_CELLEXP_CELLOSAURUS: ${HPA_CELLOSAURUS_FILE:-/cellosaurus/cellosaurus.txt}
   volumes:
     # Named volume: no host uid/gid juggling, and it survives `down`/rebuilds.
     # To keep the database on the host instead, replace with a bind mount and
     # chown it to uid 10001 (see README).
     - cellexp-data:/data
-    # Your HPA downloads and cellosaurus.txt, read-only.  Only build/demo
-    # need them.
+    # Your HPA downloads, read-only.  Only build/demo need them.
     - ${HPA_SOURCE_DIR:-./hpa-source}:/source:ro
+    # Curated reference tables, edited without rebuilding the image.
+    - ${HPA_REFERENCE_DIR:-./reference}:/reference:ro
+    # cellosaurus.txt lives on its own: it is ~200 MiB and updated on
+    # Cellosaurus's release schedule, not with the HPA downloads.
+    - ${HPA_CELLOSAURUS_DIR:-./cellosaurus}:/cellosaurus:ro
 
 services:
   web:
@@ -47,7 +58,11 @@ services:
       #   - "127.0.0.1:${HPA_CELLEXP_PORT:-8000}:8000"
       - "${HPA_CELLEXP_PORT:-8000}:8000"
     environment:
+      # A service-level `environment:` REPLACES the anchor's, so everything
+      # from x-common has to be repeated here - not merged.
       HPA_CELLEXP_DB: /data/hpa_cellexp.sqlite
+      HPA_CELLEXP_REFERENCE_DIR: /reference
+      HPA_CELLEXP_CELLOSAURUS: ${HPA_CELLOSAURUS_FILE:-/cellosaurus/cellosaurus.txt}
       # Pinned: the container-internal port is the right-hand side of the
       # ports mapping below.  Left unset it would inherit HPA_CELLEXP_PORT from
       # .env, move the listener, and stop matching the mapping.

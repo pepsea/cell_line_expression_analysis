@@ -7,6 +7,7 @@ import os
 import sys
 
 from . import __version__
+from . import config
 from .config import DEFAULT_DB_PATH, SCHEMA_VERSION
 
 
@@ -149,6 +150,18 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+class _PrintAndExit(argparse.Action):
+    """Print `text` verbatim and exit 0."""
+
+    def __init__(self, option_strings, dest, text="", **kwargs):
+        super().__init__(option_strings, dest, **kwargs)
+        self.text = text
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        print(self.text)
+        parser.exit(0)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hpa_cellexp",
@@ -160,12 +173,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="path to the SQLite database (default: %(default)s)",
     )
     parser.add_argument(
+        "--reference-dir",
+        metavar="DIR",
+        default=config.REFERENCE_DIR,
+        help="folder holding the reference tables (tcga_organ.tsv, labels_ja.tsv, "
+             "cell_line_organ.tsv, organ_keywords.tsv).  Each file is taken from "
+             "here when present and from the packaged copy otherwise "
+             "(env HPA_CELLEXP_REFERENCE_DIR, default: %(default)s)",
+    )
+    parser.add_argument(
         "--version",
-        action="version",
-        version="hpa_cellexp {} (schema v{}) from {}".format(
-            __version__, SCHEMA_VERSION, os.path.dirname(os.path.abspath(__file__))
-        ),
-        help="print the version, schema version and install location",
+        # argparse's built-in version action word-wraps, which mangles a
+        # multi-line report into one paragraph.
+        action=_PrintAndExit,
+        nargs=0,
+        text="hpa_cellexp {} (schema v{})\n"
+                "  install       : {}\n"
+                "  database      : {}\n"
+                "  reference dir : {}\n"
+                "  cellosaurus   : {}".format(
+                    __version__,
+                    SCHEMA_VERSION,
+                    os.path.dirname(os.path.abspath(__file__)),
+                    DEFAULT_DB_PATH,
+                    config.REFERENCE_DIR or "(packaged: {})".format(
+                        config.PACKAGED_REFERENCE_DIR),
+                    config.CELLOSAURUS_PATH or "(unset)",
+                ),
+        help="print the version, schema version and the folders in use",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -178,6 +213,9 @@ def build_parser() -> argparse.ArgumentParser:
         SUPPRESS keeps the subparser from overwriting a value given globally.
         """
         subparser.add_argument("--database", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+        subparser.add_argument(
+            "--reference-dir", default=argparse.SUPPRESS, help=argparse.SUPPRESS
+        )
 
     build = sub.add_parser("build", help="build the database from HPA download files")
     build.add_argument(
@@ -196,9 +234,11 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument(
         "--cellosaurus",
         metavar="FILE",
+        default=config.CELLOSAURUS_PATH,
         help="cellosaurus.txt from https://ftp.expasy.org/databases/cellosaurus/ - "
              "fills in 由来臓器, Cellosaurus accession, species, sex, age and disease "
-             "for cell lines the metadata does not cover",
+             "for cell lines the metadata does not cover "
+             "(env HPA_CELLEXP_CELLOSAURUS, default: %(default)s)",
     )
     build.add_argument("--release", help="label for the HPA release, e.g. 'HPA v24'")
     build.add_argument("--quiet", action="store_true", help="suppress progress output")
@@ -260,6 +300,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    # A folder given on the command line has to reach the reference readers
+    # before anything asks them a question, and their caches may already be
+    # warm from an earlier call in the same process.
+    if getattr(args, "reference_dir", None) != config.REFERENCE_DIR:
+        config.REFERENCE_DIR = args.reference_dir
+        os.environ.pop("HPA_CELLEXP_REFERENCE_DIR", None)
+        if args.reference_dir:
+            os.environ["HPA_CELLEXP_REFERENCE_DIR"] = args.reference_dir
+        from . import reference
+
+        reference.reload()
     return args.func(args)
 
 

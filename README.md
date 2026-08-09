@@ -119,6 +119,9 @@ python3 -m hpa_cellexp serve --host 0.0.0.0 --port 9000
 |---|---|---|
 | `HPA_CELLEXP_PORT` | `8000` | **ブラウザでアクセスするポート**（ホスト側） |
 | `HPA_SOURCE_DIR` | `./hpa-source` | HPA ファイルの置き場（`/source` に読み取り専用でマウント） |
+| `HPA_REFERENCE_DIR` | `./reference` | **参照テーブルの置き場**（`/reference` にマウント） |
+| `HPA_CELLOSAURUS_DIR` | `./cellosaurus` | **cellosaurus.txt の置き場**（`/cellosaurus` にマウント） |
+| `HPA_CELLOSAURUS_FILE` | `/cellosaurus/cellosaurus.txt` | コンテナ内から見た cellosaurus.txt のパス |
 | `HPA_CELLEXP_WORKERS` | `1` | ワーカー数。DB は読み取り専用で開くため安全に増やせます |
 
 `.env.example` をコピーして `.env` を作ると、上記をまとめて設定できます。
@@ -246,6 +249,53 @@ python3 -m hpa_cellexp build --expression ... --metadata ... \
     --organ-column     "Site of origin" \
     --disease-column   "Histology"
 ```
+
+### データフォルダの設定
+
+`tcga_organ.tsv` などの参照テーブルと `cellosaurus.txt` は、**パッケージの外に置けます**。
+場所はすべて `hpa_cellexp/config.py` に集約してあり、環境変数で設定します。
+
+| 設定 | 環境変数 | CLI | 既定値 |
+|---|---|---|---|
+| 参照テーブルのフォルダ | `HPA_CELLEXP_REFERENCE_DIR` | `--reference-dir` | 同梱版（`hpa_cellexp/reference/`） |
+| cellosaurus.txt のパス | `HPA_CELLEXP_CELLOSAURUS` | `build --cellosaurus` | 未設定 |
+| データベースのパス | `HPA_CELLEXP_DB` | `--database` | `data/hpa_cellexp.sqlite` |
+
+**参照テーブルはファイル単位で解決します。** 指定フォルダにあるファイルが優先され、
+無いものは同梱版が使われます。`tcga_organ.tsv` だけ差し替えたいときに、
+残り3つをコピーする必要はありません。
+
+```bash
+mkdir -p /srv/hpa/reference
+cp hpa_cellexp/reference/tcga_organ.tsv /srv/hpa/reference/   # 編集して使う
+
+export HPA_CELLEXP_REFERENCE_DIR=/srv/hpa/reference
+export HPA_CELLEXP_CELLOSAURUS=/srv/hpa/cellosaurus/cellosaurus.txt
+
+python3 -m hpa_cellexp --version        # 実際に使われている場所を表示
+python3 -m hpa_cellexp build --expression rna_celline.tsv.zip   # --cellosaurus は不要
+```
+
+`--version` は解決後のパスを表示するので、「どのファイルが読まれているのか」は
+これで確認できます。
+
+```
+hpa_cellexp 1.10.0 (schema v3)
+  install       : /srv/app/hpa_cellexp
+  database      : /data/hpa_cellexp.sqlite
+  reference dir : /srv/hpa/reference
+  cellosaurus   : /srv/hpa/cellosaurus/cellosaurus.txt
+```
+
+Docker では `.env` の `HPA_REFERENCE_DIR` / `HPA_CELLOSAURUS_DIR` がホスト側の
+フォルダを指し、コンテナ内の `/reference` と `/cellosaurus` に読み取り専用で
+マウントされます。リポジトリ直下の `reference/` と `cellosaurus/` が既定の
+置き場で、それぞれ README に何を置くか書いてあります。
+
+参照テーブルはサーバ起動時に読み込むので、編集後は `docker compose restart web`
+してください。由来臓器の判定に関わるファイル（`organ_keywords.tsv`,
+`cell_line_organ.tsv`, `tcga_organ.tsv` の organ 列）を変えた場合は、
+判定結果が DB に焼き込まれているため `build` のやり直しが必要です。
 
 ### 由来臓器 (organ) はどこから来るか
 

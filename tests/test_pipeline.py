@@ -652,6 +652,105 @@ class GeneLinkTests(unittest.TestCase):
                     self.assertIn(gene["symbol"], gene["hpaUrl"])
 
 
+class ReferenceFolderTests(unittest.TestCase):
+    """The curated tables and cellosaurus.txt live wherever the deployment
+    keeps them; config decides, not the package layout."""
+
+    def setUp(self):
+        import importlib
+
+        from hpa_cellexp import config
+
+        self.importlib = importlib
+        self.config = config
+        self.saved = {
+            k: os.environ.get(k)
+            for k in ("HPA_CELLEXP_REFERENCE_DIR", "HPA_CELLEXP_CELLOSAURUS")
+        }
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        for key, value in self.saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        self.importlib.reload(self.config)
+        self.importlib.reload(R)
+        R.reload()
+        self.tmp.cleanup()
+
+    def _point_at(self, directory):
+        os.environ["HPA_CELLEXP_REFERENCE_DIR"] = directory
+        self.importlib.reload(self.config)
+        self.importlib.reload(R)
+        R.reload()
+
+    def test_a_file_in_the_folder_wins_over_the_packaged_copy(self):
+        write(self.tmp.name, "tcga_organ.tsv",
+              "tcga_code\torgan\tdescription\tja\nLUAD\tPleura\tTest\tテスト\n")
+        self._point_at(self.tmp.name)
+        self.assertEqual(self.config.reference_origin("tcga_organ.tsv"), "external")
+        self.assertEqual(R.tcga_organ_map()["LUAD"], "Pleura")
+        self.assertEqual(R.tcga_name("LUAD"), ("Test", "テスト"))
+
+    def test_the_fallback_is_per_file(self):
+        """Overriding one table must not mean copying all four."""
+        write(self.tmp.name, "tcga_organ.tsv",
+              "tcga_code\torgan\tdescription\tja\nLUAD\tPleura\tTest\tテスト\n")
+        self._point_at(self.tmp.name)
+        self.assertEqual(self.config.reference_origin("labels_ja.tsv"), "packaged")
+        self.assertEqual(R.label_ja("Lung"), "肺")
+        self.assertEqual(R.organ_from_cell_line_name("CACO-2")[0], "Colon")
+
+    def test_an_empty_or_missing_folder_changes_nothing(self):
+        self._point_at(os.path.join(self.tmp.name, "does-not-exist"))
+        self.assertEqual(self.config.reference_origin("tcga_organ.tsv"), "packaged")
+        self.assertEqual(R.tcga_organ_map()["LUAD"], "Lung")
+
+    def test_the_external_folder_reaches_the_ingest(self):
+        """Not just the readers: a build has to classify by the override."""
+        write(self.tmp.name, "tcga_organ.tsv",
+              "tcga_code\torgan\tdescription\tja\nLUAD\tPleura\tTest\tテスト\n")
+        self._point_at(self.tmp.name)
+        expression = write(self.tmp.name, "e.tsv",
+                           "Gene name\tCell line\tnTPM\nGAPDH\tMYSTERY-1\t100\n")
+        tcga = write(self.tmp.name, "t.tsv",
+                     "TCGA cancer\tCell line\tRank\tSpearman correlation\n"
+                     "LUAD\tMYSTERY-1\t1\t0.8\n")
+        db_path = os.path.join(self.tmp.name, "x.sqlite")
+        build_database(db_path=db_path, expression_path=expression, tcga_path=tcga,
+                       progress=False)
+        row = Database(db_path).cell_lines()[0]
+        self.assertEqual(row["organ"], "Pleura")
+
+    def test_the_cellosaurus_path_is_configuration(self):
+        """So `build` does not need --cellosaurus spelled out every time."""
+        os.environ["HPA_CELLEXP_CELLOSAURUS"] = "/srv/data/cellosaurus.txt"
+        self.importlib.reload(self.config)
+        from hpa_cellexp import __main__ as cli
+
+        self.importlib.reload(cli)
+        args = cli.build_parser().parse_args(["build", "--expression", "e.tsv"])
+        self.assertEqual(args.cellosaurus, "/srv/data/cellosaurus.txt")
+        # An explicit flag still wins.
+        args = cli.build_parser().parse_args(
+            ["build", "--expression", "e.tsv", "--cellosaurus", "/other.txt"]
+        )
+        self.assertEqual(args.cellosaurus, "/other.txt")
+
+    def test_reference_dir_is_accepted_on_either_side_of_the_subcommand(self):
+        from hpa_cellexp import __main__ as cli
+
+        parser = cli.build_parser()
+        self.assertEqual(
+            parser.parse_args(["--reference-dir", "/r", "organs"]).reference_dir, "/r"
+        )
+        self.assertEqual(
+            parser.parse_args(["organs", "--reference-dir", "/r"]).reference_dir, "/r"
+        )
+
+
 class SpeciesTests(unittest.TestCase):
     """Regression: the species facet listed ヒト and Homo sapiens separately."""
 

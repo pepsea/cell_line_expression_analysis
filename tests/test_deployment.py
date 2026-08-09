@@ -24,6 +24,16 @@ except ImportError:  # pragma: no cover
     yaml = None
 
 
+def container_path(mount: str) -> str:
+    """The container side of a compose volume string.
+
+    Not a plain split(":"): the host side is usually "${VAR:-default}", which
+    carries colons of its own.
+    """
+    match = re.search(r":(/[^:]*)(?::(?:ro|rw))?$", mount)
+    return match.group(1) if match else ""
+
+
 def read(name: str) -> str:
     with open(os.path.join(ROOT, name), "r", encoding="utf-8") as handle:
         return handle.read()
@@ -153,6 +163,48 @@ class ComposeTests(unittest.TestCase):
         """`docker compose up` must bring up the site only."""
         default = [n for n, s in self.services.items() if not s.get("profiles")]
         self.assertEqual(default, ["web"])
+
+    def test_the_data_folders_are_configuration(self):
+        """tcga_organ.tsv and cellosaurus.txt live outside the image, so both
+        folders have to be mounted AND named in the environment - a mount
+        nothing points at is invisible to the app."""
+        for name, service in self.services.items():
+            with self.subTest(service=name):
+                env = service["environment"]
+                self.assertEqual(env["HPA_CELLEXP_REFERENCE_DIR"], "/reference")
+                self.assertIn("cellosaurus", env["HPA_CELLEXP_CELLOSAURUS"])
+                mounts = [container_path(v) for v in service["volumes"]]
+                self.assertIn("/reference", mounts)
+                self.assertIn("/cellosaurus", mounts)
+
+    def test_the_data_folders_are_read_only_and_overridable(self):
+        for name, service in self.services.items():
+            with self.subTest(service=name):
+                found = set()
+                for mount in service["volumes"]:
+                    where = container_path(mount)
+                    if where not in ("/reference", "/cellosaurus"):
+                        continue
+                    found.add(where)
+                    self.assertTrue(mount.endswith(":ro"), mount)
+                    self.assertTrue(
+                        mount.startswith("${"),
+                        "{}: the host path must come from .env".format(mount),
+                    )
+                self.assertEqual(found, {"/reference", "/cellosaurus"})
+
+    def test_env_example_documents_the_data_folders(self):
+        example = read(".env.example")
+        self.assertIn("HPA_REFERENCE_DIR", example)
+        self.assertIn("HPA_CELLOSAURUS_DIR", example)
+
+    def test_the_override_folders_are_not_baked_into_the_image(self):
+        """A copy inside the image would shadow the bind mount."""
+        ignore = read(".dockerignore")
+        self.assertIn("reference/", ignore)
+        self.assertIn("cellosaurus/", ignore)
+        # ...but the packaged tables must still get in.
+        self.assertIn("!hpa_cellexp/reference/*.tsv", ignore)
 
     def test_source_files_are_mounted_read_only(self):
         for name, service in self.services.items():

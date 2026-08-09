@@ -46,10 +46,11 @@ python3 -m hpa_cellexp serve     # http://127.0.0.1:8000
 # 1) HPA のファイルを置いたディレクトリを指定して、DB を作る（初回のみ）
 export HPA_SOURCE_DIR=/path/to/hpa-files
 docker compose run --rm build \
-  --expression /source/rna_celline.tsv.zip \
-  --metadata   /source/cell_line_analysis_data.tsv.zip \
-  --tcga       /source/rna_cell_line_tcga_comparison.tsv.zip \
-  --release    "HPA v24"
+  --expression  /source/rna_celline.tsv.zip \
+  --metadata    /source/cell_line_analysis_data.tsv.zip \
+  --tcga        /source/rna_cell_line_tcga_comparison.tsv.zip \
+  --cellosaurus /source/cellosaurus.txt \
+  --release     "HPA v24"
 
 # 2) 常設起動（以後、ホスト再起動時も自動で立ち上がります）
 docker compose up -d
@@ -180,15 +181,17 @@ HPA の配布ファイル（`.tsv` / `.tsv.zip` / `.tsv.gz` のいずれでも�
 | `rna_celline.tsv` | 発現マトリクス（遺伝子 × 細胞株の TPM / pTPM / nTPM） | **必須** |
 | `cell_line_analysis_data.tsv` | 細胞株のアノテーション（由来臓器・疾患・種・Cellosaurus ID） | 推奨 |
 | `rna_cell_line_tcga_comparison.tsv` | 細胞株と TCGA がんの類似度 | 任意 |
+| `cellosaurus.txt` | **細胞株の由来組織・Cellosaurus ID・種・性別・年齢**（[Cellosaurus](https://ftp.expasy.org/databases/cellosaurus/) より） | **強く推奨** |
 
 ### 4.2 取り込み
 
 ```bash
 python3 -m hpa_cellexp build \
-  --expression path/to/rna_celline.tsv.zip \
-  --metadata   path/to/cell_line_analysis_data.tsv.zip \
-  --tcga       path/to/rna_cell_line_tcga_comparison.tsv.zip \
-  --release    "HPA v24"
+  --expression  path/to/rna_celline.tsv.zip \
+  --metadata    path/to/cell_line_analysis_data.tsv.zip \
+  --tcga        path/to/rna_cell_line_tcga_comparison.tsv.zip \
+  --cellosaurus path/to/cellosaurus.txt \
+  --release     "HPA v24"
 ```
 
 `data/hpa_cellexp.sqlite` が作られます（`--database` で変更可）。
@@ -247,13 +250,14 @@ python3 -m hpa_cellexp build --expression ... --metadata ... \
    （例: `Intestine` + `Colorectal adenocarcinoma` → `Colon`）
 3. メタデータの disease / tissue 列からのキーワード推定
    （`hpa_cellexp/reference/organ_keywords.tsv`）
-4. TCGA 比較ファイルの最上位がん種からの推定 — **※参考値**
+4. **Cellosaurus**（`--cellosaurus` を指定した場合）— 下記参照
+5. TCGA 比較ファイルの最上位がん種からの推定 — **※参考値**
    （`hpa_cellexp/reference/tcga_organ.tsv`、例 `LUAD` → `Lung`）
-5. **内蔵の細胞株リストからの推定 — ※参考値**
+6. **内蔵の細胞株リストからの推定 — ※参考値**
    （`hpa_cellexp/reference/cell_line_organ.tsv`）
 
-1〜3 はデータ由来、4〜5 は推定値で `※参考値` と明示されます。
-5 はメタデータに情報が無いときの穴埋めで、CACO-2→結腸、NCI-H1650→肺 のように
+1〜4 はデータ由来、5〜6 は推定値で `※参考値` と明示されます。
+6 はメタデータにも Cellosaurus にも情報が無いときの穴埋めで、CACO-2→結腸、NCI-H1650→肺 のように
 既知の細胞株を名前で引きます。記号・空白は無視して照合し、`MDA-MB-*` のような
 シリーズ指定もできます。**単なるデータファイルなので自由に追記・修正してください。**
 
@@ -263,10 +267,42 @@ python3 -m hpa_cellexp build --expression ... --metadata ... \
 ```
 由来臓器の判定内訳:
      812  メタデータの organ 列
-     193  疾患/組織名からの推定
+     193  Cellosaurus CVCL_0023 (In situ: Lung) など
      147  内蔵の細胞株リストから推定 ※参考値
       54  （判定できず / 未設定）
 ```
+
+### 由来組織がわからない細胞株 — Cellosaurus を使う
+
+**はい、`https://ftp.expasy.org/databases/cellosaurus/` を使うのが正解です。**
+Cellosaurus (SIB) は細胞株の標準データベースで、15万株以上を収録しています。
+発現データ側のメタデータに由来組織が無い場合、これが最も確実な情報源です。
+
+```bash
+curl -O https://ftp.expasy.org/databases/cellosaurus/cellosaurus.txt
+python3 -m hpa_cellexp build --expression ... --cellosaurus cellosaurus.txt
+```
+
+`.gz` / `.zip` に圧縮したままでも読めます。約 150 MB ですが、
+必要な細胞株だけを1パスで拾うためメモリはほとんど使いません。
+
+取り込むのは以下です:
+
+| Cellosaurus の項目 | 使い道 |
+|---|---|
+| `CC Derived from site:` | **由来臓器**（例 `In situ; Lung` → 肺） |
+| `DI` (NCIt 疾患名) | 疾患。転移株では由来臓器の判定にも使用 |
+| `AC` (CVCL_xxxx) | **Cellosaurus へのリンクが名前検索ではなく該当ページ直リンクになります** |
+| `OX` | 種（`NCBI_TaxID=10090` → マウス など） |
+| `SX` / `AG` | 性別・年齢 |
+
+**転移由来の株の扱い**: `Derived from site` は「採取した場所」であって
+「がんが発生した臓器」ではありません。たとえば MDA-MB-231 は
+`Metastatic; Pleural effusion`（胸水）ですが、由来臓器は疾患名から**乳腺**と判定します。
+`In situ` の場合のみ site をそのまま使います。
+
+Cellosaurus はデータ由来なので `※参考値` は付きません。ただし**データセット側の
+メタデータが優先**で、Cellosaurus はその穴埋めに使われます。
 
 ### 種 (species) について
 
@@ -398,6 +434,7 @@ hpa_cellexp/
   sources.py      .tsv / .tsv.zip / .tsv.gz の透過リーダ
   columns.py      列名の別名解決（リリース間の差異を吸収）
   reference.py    TCGA→臓器、疾患テキスト→臓器、種の正規化、日本語ラベル、Cellosaurus URL
+  cellosaurus.py  cellosaurus.txt のストリーミングパーサ（由来組織・CVCL・種など）
   queries.py      読み取り側のクエリ（スレッドごとの read-only 接続）
   api.py          FastAPI アプリ
   schema.sql      SQLite スキーマ
@@ -451,8 +488,12 @@ pip install playwright && playwright install chromium
 `disease` がすべて `(見つかりません)` なら、メタデータが一切使われていません。
 `--organ-column` などで列を明示指定すると解決します（「列名について」を参照）。
 
-メタデータ側に情報が無い場合でも、内蔵の細胞株リストから推定して穴埋めします
-（`※参考値` と明示）。手元の細胞株が載っていなければ
+**最も効果的なのは `--cellosaurus cellosaurus.txt` を付けることです。**
+Cellosaurus は15万株以上を収録しており、由来組織・Cellosaurus ID・種・性別・年齢を
+まとめて埋められます（「由来組織がわからない細胞株 — Cellosaurus を使う」参照）。
+
+それでも残る分は内蔵の細胞株リストから推定して穴埋めします（`※参考値` と明示）。
+手元の細胞株が載っていなければ
 `hpa_cellexp/reference/cell_line_organ.tsv` に追記してください。
 
 ### 由来臓器が想定と違う

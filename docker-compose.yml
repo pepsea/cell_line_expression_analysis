@@ -2,10 +2,11 @@
 #
 #   1. データベースを作る（初回のみ、データ更新時も）
 #      HPA_SOURCE_DIR=/path/to/hpa-files docker compose run --rm build \
-#        --expression /source/rna_celline.tsv.zip \
-#        --metadata   /source/cell_line_analysis_data.tsv.zip \
-#        --tcga       /source/rna_cell_line_tcga_comparison.tsv.zip \
-#        --release    "HPA v24"
+#        --expression  /source/rna_celline.tsv.zip \
+#        --metadata    /source/cell_line_analysis_data.tsv.zip \
+#        --tcga        /source/rna_cell_line_tcga_comparison.tsv.zip \
+#        --cellosaurus /source/cellosaurus.txt \
+#        --release     "HPA v24"
 #
 #   2. 常設起動
 #      docker compose up -d
@@ -24,7 +25,8 @@ x-common: &common
     # To keep the database on the host instead, replace with a bind mount and
     # chown it to uid 10001 (see README).
     - cellexp-data:/data
-    # Your HPA downloads, read-only.  Only the build/demo steps need them.
+    # Your HPA downloads and cellosaurus.txt, read-only.  Only build/demo
+    # need them.
     - ${HPA_SOURCE_DIR:-./hpa-source}:/source:ro
 
 services:

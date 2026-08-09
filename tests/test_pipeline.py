@@ -687,6 +687,179 @@ class OrganCoverageTests(unittest.TestCase):
         self.assertEqual(names, ["A-549", "CACO-2", "SK-MEL-30", "MYSTERY-XYZ"])
 
 
+CELLOSAURUS = """ID   HeLa
+AC   CVCL_0030
+SY   Hela; HELA; He La
+CC   Derived from site: In situ; Uterus, cervix; UBERON=UBERON_0000002.
+DI   NCIt; C27677; Cervical adenocarcinoma
+OX   NCBI_TaxID=9606; ! Homo sapiens
+SX   Female
+AG   30Y
+CA   Cancer cell line
+//
+ID   A-549
+AC   CVCL_0023
+SY   A549
+CC   Derived from site: In situ; Lung; UBERON=UBERON_0002048.
+DI   NCIt; C3512; Lung adenocarcinoma
+OX   NCBI_TaxID=9606; ! Homo sapiens
+CA   Cancer cell line
+//
+ID   MDA-MB-231
+AC   CVCL_0062
+CC   Derived from site: Metastatic; Pleural effusion; UBERON=UBERON_0000175.
+DI   NCIt; C4194; Breast adenocarcinoma
+OX   NCBI_TaxID=9606; ! Homo sapiens
+CA   Cancer cell line
+//
+ID   NIH/3T3
+AC   CVCL_0594
+CC   Derived from site: In situ; Embryo; UBERON=UBERON_0000922.
+OX   NCBI_TaxID=10090; ! Mus musculus
+CA   Spontaneously immortalized cell line
+//
+ID   MYSTERY-XYZ
+AC   CVCL_9999
+OX   NCBI_TaxID=9606; ! Homo sapiens
+//
+"""
+
+
+class CellosaurusParserTests(unittest.TestCase):
+    """Parsing the flat file from https://ftp.expasy.org/databases/cellosaurus/"""
+
+    @classmethod
+    def setUpClass(cls):
+        from hpa_cellexp import cellosaurus as CS
+
+        cls.CS = CS
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.path = write(cls.tmp.name, "cellosaurus.txt", CELLOSAURUS)
+        cls.entries = {e.name: e for e in CS.parse(cls.path)}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_every_entry_is_read(self):
+        self.assertEqual(
+            sorted(self.entries),
+            ["A-549", "HeLa", "MDA-MB-231", "MYSTERY-XYZ", "NIH/3T3"],
+        )
+
+    def test_fields(self):
+        hela = self.entries["HeLa"]
+        self.assertEqual(hela.accession, "CVCL_0030")
+        self.assertEqual(hela.species, "Homo sapiens")
+        self.assertEqual(hela.sex, "Female")
+        self.assertEqual(hela.age, "30Y")
+        self.assertEqual(hela.disease, "Cervical adenocarcinoma")
+        self.assertEqual(hela.site, "Uterus, cervix")
+        self.assertEqual(hela.site_type, "In situ")
+        self.assertIn("HELA", list(hela.keys()))
+
+    def test_species_from_taxid_line(self):
+        self.assertEqual(self.entries["NIH/3T3"].species, "Mus musculus")
+
+    def test_in_situ_site_gives_the_organ(self):
+        self.assertEqual(self.CS.organ_of(self.entries["A-549"]), "Lung")
+        self.assertEqual(self.CS.organ_of(self.entries["HeLa"]), "Cervix")
+
+    def test_metastatic_site_defers_to_the_disease(self):
+        """A metastatic sample's site is where it was taken, not where the
+        tumour arose - MDA-MB-231 is breast, not pleura."""
+        entry = self.entries["MDA-MB-231"]
+        self.assertEqual(entry.site, "Pleural effusion")
+        self.assertEqual(self.CS.organ_of(entry), "Breast")
+
+    def test_entry_without_site_or_disease_has_no_organ(self):
+        self.assertIsNone(self.CS.organ_of(self.entries["MYSTERY-XYZ"]))
+
+    def test_lookup_ignores_punctuation_and_case(self):
+        index = self.CS.load_for(self.path, ["hela", "a 549", "mdamb231", "nope"])
+        self.assertEqual(sorted(index), ["A549", "HELA", "MDAMB231"])
+        self.assertEqual(index["HELA"].accession, "CVCL_0030")
+
+    def test_lookup_of_nothing_reads_nothing(self):
+        self.assertEqual(self.CS.load_for(self.path, []), {})
+
+
+class CellosaurusIngestTests(unittest.TestCase):
+    EXPR = (
+        "Gene name\tCell line\tnTPM\n"
+        "GAPDH\tHeLa\t100\nGAPDH\tA-549\t100\n"
+        "GAPDH\tMDA-MB-231\t100\nGAPDH\tMYSTERY-XYZ\t100\n"
+    )
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = self.tmp.name
+        self.cellosaurus = write(self.d, "cellosaurus.txt", CELLOSAURUS)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, metadata=None):
+        db_path = os.path.join(self.d, "cs-{}.sqlite".format(abs(hash(str(metadata))) % 10 ** 6))
+        build_database(
+            db_path=db_path,
+            expression_path=write(self.d, "e.tsv", self.EXPR),
+            metadata_paths=[write(self.d, "m.tsv", metadata)] if metadata else [],
+            cellosaurus_path=self.cellosaurus,
+            progress=False,
+        )
+        return {c["name"]: c for c in Database(db_path).cell_lines()}
+
+    def test_fills_the_organ_from_sourced_data(self):
+        rows = self._build()
+        self.assertEqual(rows["HeLa"]["organ"], "Cervix")
+        self.assertEqual(rows["A-549"]["organ"], "Lung")
+        self.assertEqual(rows["MDA-MB-231"]["organ"], "Breast")
+        for name in ("HeLa", "A-549", "MDA-MB-231"):
+            with self.subTest(cell_line=name):
+                self.assertIn("Cellosaurus", rows[name]["organSource"])
+                # Sourced, so it must NOT be marked as an estimate.
+                self.assertNotIn("参考値", rows[name]["organSource"])
+
+    def test_accession_makes_the_outbound_link_exact(self):
+        rows = self._build()
+        self.assertEqual(rows["HeLa"]["cellosaurusId"], "CVCL_0030")
+        self.assertEqual(rows["HeLa"]["databaseUrl"], "https://www.cellosaurus.org/CVCL_0030")
+        # Even a cell line with no organ gets a direct link.
+        self.assertEqual(
+            rows["MYSTERY-XYZ"]["databaseUrl"], "https://www.cellosaurus.org/CVCL_9999"
+        )
+
+    def test_species_sex_age_and_disease_are_filled(self):
+        rows = self._build()
+        self.assertEqual(rows["HeLa"]["species"], "Homo sapiens")
+        self.assertEqual(rows["HeLa"]["sex"], "Female")
+        self.assertEqual(rows["HeLa"]["age"], "30Y")
+        self.assertEqual(rows["HeLa"]["disease"], "Cervical adenocarcinoma")
+
+    def test_dataset_metadata_still_wins(self):
+        """Cellosaurus fills gaps; it does not overrule the user's own file."""
+        rows = self._build("Cell line\tOrgan\nHeLa\tRectum\n")
+        self.assertEqual(rows["HeLa"]["organ"], "Rectum")
+        self.assertEqual(rows["HeLa"]["organSource"], "メタデータの organ 列")
+        # ... but the accession is still picked up.
+        self.assertEqual(rows["HeLa"]["cellosaurusId"], "CVCL_0030")
+
+    def test_unknown_cell_line_stays_unassigned(self):
+        self.assertIsNone(self._build()["MYSTERY-XYZ"]["organ"])
+
+    def test_file_is_recorded_in_the_sources(self):
+        db_path = os.path.join(self.d, "src.sqlite")
+        build_database(
+            db_path=db_path,
+            expression_path=write(self.d, "e2.tsv", self.EXPR),
+            cellosaurus_path=self.cellosaurus,
+            progress=False,
+        )
+        sources = Database(db_path).info()["sources"]
+        self.assertEqual(sources["cellosaurus"]["name"], "cellosaurus.txt")
+
+
 class SourceProvenanceTests(unittest.TestCase):
     """The site has to be able to say which files it was built from."""
 

@@ -337,6 +337,7 @@ def build_database(
     expression_path: str,
     metadata_paths: Optional[Iterable[str]] = None,
     tcga_path: Optional[str] = None,
+    cellosaurus_path: Optional[str] = None,
     release: Optional[str] = None,
     demo: bool = False,
     progress: bool = True,
@@ -483,13 +484,71 @@ def build_database(
         )
         report.genes = len(gene_ids)
 
+        # Cellosaurus needs the cell line names, so it is loaded here rather
+        # than up front - one streaming pass, keeping only the wanted entries.
+        catalogue: Dict[str, object] = {}
+        if cellosaurus_path:
+            from . import cellosaurus as CS
+
+            def _tick_cs(scanned: int, matched: int) -> None:
+                if progress:
+                    print(
+                        "\r  Cellosaurus: {:>7,} entries scanned, {:>5,} matched".format(
+                            scanned, matched
+                        ),
+                        end="",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+
+            catalogue = CS.load_for(cellosaurus_path, cell_ids._ids.keys(), _tick_cs)
+            if progress:
+                print("", file=sys.stderr)
+            if not catalogue:
+                report.warnings.append(
+                    "{}: 一致する細胞株がありませんでした。Cellosaurus のフラットファイル"
+                    "(cellosaurus.txt) を指定しているか確認してください。".format(
+                        os.path.basename(cellosaurus_path)
+                    )
+                )
+
         unannotated = 0
         tcga_inferred = 0
+        cellosaurus_used = 0
         cell_rows = []
         for name, cid in cell_ids.items():
             record = metadata.get(name) or CellLineRecord(name=name)
             organ = record.organ
             organ_source = record.organ_source
+
+            entry = catalogue.get(R.name_key(name)) if catalogue else None
+            if entry is not None:
+                from . import cellosaurus as CS
+
+                # Sourced data, so it outranks every guess below - but the
+                # dataset's own metadata still wins, since that is the user's
+                # deliberate annotation.
+                if organ is None:
+                    from_catalogue = CS.organ_of(entry)
+                    if from_catalogue:
+                        organ = from_catalogue
+                        detail = (
+                            "{}: {}".format(entry.site_type, entry.site)
+                            if entry.site
+                            else (entry.disease or "")
+                        )
+                        organ_source = "Cellosaurus {} ({})".format(
+                            entry.accession or "", detail
+                        ).replace(" ()", "")
+                        cellosaurus_used += 1
+                # Fill the other blanks too: an exact accession turns the
+                # outbound link from a name search into a direct one.
+                record.cellosaurus_id = record.cellosaurus_id or entry.accession
+                record.species = record.species or entry.species
+                record.disease = record.disease or entry.disease
+                record.sex = record.sex or entry.sex
+                record.age = record.age or entry.age
+
             if organ is None:
                 best = best_tcga.get(name)
                 if best is not None:
@@ -537,6 +596,10 @@ def build_database(
             cell_rows,
         )
         report.cell_lines = len(cell_rows)
+        if cellosaurus_used:
+            report.warnings.append(
+                "{} cell lines took their 由来臓器 from Cellosaurus".format(cellosaurus_used)
+            )
         if tcga_inferred:
             report.warnings.append(
                 "{} cell lines have an organ inferred from TCGA similarity rather than "
@@ -577,6 +640,7 @@ def build_database(
                     "expression": _file_info(expression_path),
                     "metadata": [_file_info(p) for p in (metadata_paths or ())],
                     "tcga": _file_info(tcga_path),
+                    "cellosaurus": _file_info(cellosaurus_path),
                 },
                 ensure_ascii=False,
             ),

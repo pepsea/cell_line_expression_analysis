@@ -33,6 +33,7 @@ def _run_build(args, build_database):
         expression_path=args.expression,
         metadata_paths=args.metadata,
         tcga_path=args.tcga,
+        cellosaurus_path=args.cellosaurus,
         release=args.release,
         demo=False,
         progress=not args.quiet,
@@ -173,6 +174,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="cell line annotation table; repeatable, earlier files win",
     )
     build.add_argument("--tcga", help="rna_cell_line_tcga_comparison.tsv[.zip]")
+    build.add_argument(
+        "--cellosaurus",
+        metavar="FILE",
+        help="cellosaurus.txt from https://ftp.expasy.org/databases/cellosaurus/ - "
+             "fills in 由来臓器, Cellosaurus accession, species, sex, age and disease "
+             "for cell lines the metadata does not cover",
+    )
     build.add_argument("--release", help="label for the HPA release, e.g. 'HPA v24'")
     build.add_argument("--quiet", action="store_true", help="suppress progress output")
     # Escape hatch for metadata files whose headers the alias lists miss.

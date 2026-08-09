@@ -226,6 +226,7 @@ function buildSourcePanel(meta) {
     '<dl>' +
       fileRow('発現マトリクス', sources.expression) +
       metadataRows +
+      fileRow('Cellosaurus', sources.cellosaurus) +
       fileRow('TCGA比較', sources.tcga) +
     '</dl><hr><dl>' +
       `<dt>リリース</dt><dd>${escapeHtml(meta.release || '-')}</dd>` +

@@ -336,11 +336,39 @@ def normalise_organ(value: Optional[str]) -> Optional[str]:
     return cleaned
 
 
+_PARENTHETICAL_RE = re.compile(r"\s*\([^)]*\)")
+_TAXID_RE = re.compile(r"taxid\D{0,3}(\d+)", re.IGNORECASE)
+
+
 def normalise_species(value: Optional[str]) -> str:
+    """Collapse every spelling of a species onto one facet value.
+
+    Cellosaurus annotates the scientific name with the common name -
+    ``Homo sapiens (Human)`` - so a straight alias lookup left that sitting
+    beside a plain ``Homo sapiens`` as if they were two different species.
+    The parenthetical is dropped before the table is consulted, and a bare
+    ``NCBI_TaxID=9606`` resolves too.
+    """
     if not value:
         return DEFAULT_SPECIES
     cleaned = " ".join(value.split()).strip()
-    return _SPECIES_ALIASES.get(cleaned.lower(), cleaned or DEFAULT_SPECIES)
+    if not cleaned:
+        return DEFAULT_SPECIES
+
+    taxid = _TAXID_RE.search(cleaned)
+    if taxid:
+        alias = _SPECIES_ALIASES.get(taxid.group(1))
+        if alias:
+            return alias
+
+    bare = _PARENTHETICAL_RE.sub("", cleaned).strip(" ,;")
+    for candidate in (cleaned, bare):
+        alias = _SPECIES_ALIASES.get(candidate.lower())
+        if alias:
+            return alias
+    # Unknown species: keep the scientific name and drop the annotation, so
+    # two spellings of the same organism still land in one bucket.
+    return bare or cleaned
 
 
 def extract_cvcl(*values: Optional[str]) -> Optional[str]:

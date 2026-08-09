@@ -11,7 +11,7 @@
 // A stale Docker image or a cached script is otherwise invisible: the page
 // looks fine and simply behaves like an older build, which is impossible to
 // tell apart from a bug.  Keep in step with hpa_cellexp/__init__.py.
-const APP_VERSION = '1.5.1';
+const APP_VERSION = '1.6.0';
 
 // ---------------------------------------------------------------------------
 // state
@@ -779,28 +779,38 @@ const HM = {
 const ORGAN_COL_WIDTH = 104;
 
 // Share of the width beside the gutter that the gene columns spread over
-// while they still fit in it.  Beyond that the sheet widens instead.
+// while a column can still be comfortably wide.
 const PLOT_WIDTH_FRACTION = 1 / 2;
 
-// The minimum unit of width for one gene column, and the maximum.  A column
-// is never squeezed below MIN_COL_WIDTH: once the genes stop fitting, the
-// heatmap grows sideways (first into the rest of the row, then past it with a
-// horizontal scrollbar) rather than compressing into an unreadable strip.
-const MIN_COL_WIDTH = 44;
+// The sheet is capped at the width on screen: adding genes narrows the columns
+// instead of pushing the heatmap off the right edge, so a laptop never has to
+// scroll sideways to see the last gene.  COMFORT_COL_WIDTH is only the point
+// at which the compact half-width block gives up and the columns spread over
+// the whole row; MIN_COL_WIDTH is the floor that keeps a column from vanishing
+// entirely at the 200-gene limit.
+const MIN_COL_WIDTH = 3;
+const COMFORT_COL_WIDTH = 44;
 const MAX_COL_WIDTH = 132;
 
 /** Width of one gene column for `cols` genes in `available` pixels.
  *
- *  Kept as a plain function so the browser tests can exercise the three
- *  regimes directly: compact block, full width, then scrolling.
+ *  Never returns more than `available / cols`, which is what keeps the sheet
+ *  inside the viewport.  Kept as a plain function so the browser tests can
+ *  exercise both regimes - compact block, then filling the row - directly.
  */
 function geneColumnWidth(available, cols) {
-  if (cols <= 0) return MIN_COL_WIDTH;
+  if (cols <= 0) return MAX_COL_WIDTH;
+  // A handful of genes: a compact block rather than a few enormous columns.
   const compact = Math.floor((available * PLOT_WIDTH_FRACTION) / cols);
-  if (compact >= MIN_COL_WIDTH) return Math.min(MAX_COL_WIDTH, compact);
-  // Too many genes for the half-width block: spend the rest of the row before
-  // giving up and scrolling at the minimum unit.
+  if (compact >= COMFORT_COL_WIDTH) return Math.min(MAX_COL_WIDTH, compact);
   return Math.max(MIN_COL_WIDTH, Math.min(MAX_COL_WIDTH, Math.floor(available / cols)));
+}
+
+/** Label every Nth gene, so narrow columns thin the labels out instead of
+ *  overprinting them.  Rotated text needs roughly 14px of column pitch to
+ *  clear its neighbour; the tooltip still names every column on hover. */
+function geneLabelStep(columnWidth) {
+  return Math.max(1, Math.ceil(14 / columnWidth));
 }
 
 /** Row and global maxima, memoised - paint() runs on every mousemove and
@@ -901,9 +911,9 @@ function renderHeatmap() {
   // One readable line per cell line; grow the rows when there are only a few.
   HM.ch = Math.max(16, Math.min(30, Math.floor((maxHeight - 46) / rows)));
 
-  // A handful of genes gives a compact block (half the space next to the
-  // gutter) rather than a few enormously wide columns; as genes are added the
-  // sheet widens by MIN_COL_WIDTH per column instead of squeezing them.
+  // The gene columns get the room beside the gutter and no more: the sheet is
+  // capped at the viewport, so adding genes narrows the columns rather than
+  // extending the heatmap to the right.
   const available = Math.max(viewport.clientWidth - HM.gutter - 2, 160);
   HM.cw = geneColumnWidth(available, cols);
   // Gene symbols are short; keep them upright while the columns are wide
@@ -1111,9 +1121,13 @@ function paint(ctx, vw, vh) {
   ctx.fillRect(HM.gutter, 0, vw - HM.gutter, HM.band);
   ctx.font = `600 12px ${font}`;
 
+  const labelStep = geneLabelStep(HM.cw);
   for (let c = firstCol; c <= lastCol; c += 1) {
     const gene = data.genes[c];
     const hovered = state.hover && state.hover.col === c;
+    // Columns too narrow for every label get every Nth one, plus whichever is
+    // under the pointer - overprinted symbols are worse than fewer of them.
+    if (c % labelStep !== 0 && !hovered) continue;
     ctx.fillStyle = hovered ? ink : ink2;
     if (HM.rotated) {
       ctx.save();

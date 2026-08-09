@@ -620,6 +620,18 @@ class SpeciesTests(unittest.TestCase):
                 self.assertEqual(R.normalise_species(value), "Homo sapiens")
         self.assertEqual(R.normalise_species("マウス"), "Mus musculus")
 
+    def test_the_cellosaurus_common_name_annotation_collapses_too(self):
+        """Cellosaurus writes "! Homo sapiens (Human)", which sat in the facet
+        list beside a plain "Homo sapiens" as though they were two species."""
+        self.assertEqual(R.normalise_species("Homo sapiens (Human)"), "Homo sapiens")
+        self.assertEqual(R.normalise_species("Mus musculus (Mouse)"), "Mus musculus")
+        self.assertEqual(R.normalise_species("NCBI_TaxID=9606"), "Homo sapiens")
+        self.assertEqual(
+            R.normalise_species("NCBI_TaxID=9606; ! Homo sapiens (Human)"), "Homo sapiens"
+        )
+        # A species with no alias keeps its scientific name, minus the note.
+        self.assertEqual(R.normalise_species("Sus scrofa (Pig)"), "Sus scrofa")
+
     def test_missing_species_falls_back_to_human(self):
         self.assertEqual(R.normalise_species(None), R.DEFAULT_SPECIES)
         self.assertEqual(R.normalise_species("  "), R.DEFAULT_SPECIES)

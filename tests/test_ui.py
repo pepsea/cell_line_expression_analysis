@@ -518,24 +518,49 @@ class UiTests(unittest.TestCase):
         self.assertIn("ヒト", searchable)
         self.assertIn("homo sapiens", searchable)
 
-    def test_heatmap_widens_as_genes_are_added(self):
-        """More genes must widen the sheet, not squeeze the columns: a column
-        never goes below the minimum unit."""
+    def test_the_sheet_never_grows_past_the_screen(self):
+        """More genes narrow the columns; they must not push the heatmap off
+        to the right, so a laptop never scrolls sideways to reach the last
+        gene."""
         widths = self.page.evaluate(
-            "() => [1, 3, 8, 20, 60].map(n => geneColumnWidth(900, n))"
+            "() => [1, 3, 8, 20, 60, 200].map(n => geneColumnWidth(900, n))"
         )
-        self.assertTrue(all(w >= 44 for w in widths), widths)
-        self.assertEqual(widths[-1], 44, "the minimum unit is the floor")
+        self.assertTrue(
+            all(w * n <= 900 for w, n in zip(widths, [1, 3, 8, 20, 60, 200])),
+            "columns must fit the room available: {}".format(widths),
+        )
         self.assertTrue(
             all(a >= b for a, b in zip(widths, widths[1:])),
             "columns must not grow as genes are added: {}".format(widths),
         )
+        self.assertTrue(all(w > 0 for w in widths), widths)
 
-        self.run_genes("ALB, KLK3")
-        two = self.page.eval_on_selector("#hmSizer", "e => parseFloat(e.style.width)")
-        self.run_genes("ALB, KLK3, PTPRC, GAPDH, VIM, EGFR, MKI67, CD19")
-        eight = self.page.eval_on_selector("#hmSizer", "e => parseFloat(e.style.width)")
-        self.assertGreater(eight, two, "eight genes must be wider than two")
+        for genes in ("ALB, KLK3",
+                      "ALB, KLK3, PTPRC, GAPDH, VIM, EGFR, MKI67, CD19",
+                      "ALB, KLK3, PTPRC, GAPDH, VIM, EGFR, MKI67, CD19, TP53, MYC, "
+                      "ESR1, AR, GFAP, SOX2, MITF, PMEL, TYR, CDH1, CDH2, MUC1"):
+            with self.subTest(genes=genes.count(",") + 1):
+                self.run_genes(genes)
+                fits = self.page.evaluate(
+                    """() => {
+                      const v = document.getElementById('hmViewport');
+                      const sheet = parseFloat(
+                        document.getElementById('hmSizer').style.width);
+                      return {sheet, room: v.clientWidth, scroll: v.scrollWidth};
+                    }"""
+                )
+                self.assertLessEqual(fits["sheet"], fits["room"])
+                self.assertLessEqual(fits["scroll"], fits["room"])
+
+    def test_narrow_columns_thin_the_gene_labels_out(self):
+        """Rotated symbols need about 14px of pitch; past that they overprint
+        into an unreadable smear, so only every Nth column is labelled."""
+        steps = self.page.evaluate(
+            "() => [132, 44, 14, 7, 4].map(w => geneLabelStep(w))"
+        )
+        self.assertEqual(steps[:3], [1, 1, 1])
+        self.assertEqual(steps[3], 2)
+        self.assertEqual(steps[4], 4)
 
     def test_dataset_chip_reveals_the_source_files(self):
         chip = self.page.locator("#datasetChip")

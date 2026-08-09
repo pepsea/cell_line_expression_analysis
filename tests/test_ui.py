@@ -388,6 +388,39 @@ class UiTests(unittest.TestCase):
         for expected in ("Kelly", "SH-SY5Y", "SK-N-SH", "U-251 MG"):
             self.assertIn(expected, names)
 
+    def test_an_organ_label_never_sits_on_another_organs_rows(self):
+        """Reported as "LNCAP は前立腺ではなく乳腺に表示される".
+
+        The label was clamped to the viewport edges, so the group starting
+        just below the fold got its name painted beside the last row of the
+        group above it.  A label must stay inside its own rows at every
+        scroll position.
+        """
+        self.run_genes("GAPDH, EGFR")
+        self.page.select_option("#sortSelect", "organ")
+        self.page.wait_for_timeout(600)
+
+        offending = self.page.evaluate(
+            """() => {
+              const vh = document.getElementById('hmViewport').clientHeight;
+              const bad = [];
+              const groups = organGroups().filter(g => g.organ);
+              for (let sy = 0; sy < 400; sy += 7) {
+                for (const g of groups) {
+                  const top = HM.band + g.start * HM.ch - sy;
+                  const bottom = HM.band + (g.end + 1) * HM.ch - sy;
+                  const y = groupLabelY(top, bottom, HM.band, vh);
+                  if (y === null) continue;
+                  if (y < top || y > bottom) {
+                    bad.push({organ: g.organ, scroll: sy, y, top, bottom});
+                  }
+                }
+              }
+              return bad;
+            }"""
+        )
+        self.assertEqual(offending, [], "label drawn outside its own group")
+
     def test_no_cell_line_is_lost_when_grouping_by_organ(self):
         """The heart of "由来臓器で並べると細胞が消える": every cell line the
         name ordering shows must still be on screen in the organ ordering."""

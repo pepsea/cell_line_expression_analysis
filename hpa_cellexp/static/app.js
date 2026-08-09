@@ -804,6 +804,28 @@ function organGroups() {
   return groups;
 }
 
+/** Where to draw one organ group's label, or null if it has no room on screen.
+ *
+ *  The label is sticky: it follows a long group down so it stays readable
+ *  while that group scrolls past.  The hard rule is that it must never leave
+ *  its OWN rows.  It used to be clamped to the viewport edges instead, and
+ *  because lastRow is computed with ceil() the group starting just below the
+ *  fold was still drawn - its label pinned to the bottom edge, right beside
+ *  the last row of the group above.  On screen that reads as "LNCAP is filed
+ *  under 乳腺", which is exactly how it was reported.
+ */
+function groupLabelY(top, bottom, band, vh) {
+  const visibleTop = Math.max(top, band);
+  const visibleBottom = Math.min(bottom, vh);
+  // Less than a line's worth of the group is on screen: no honest place to
+  // put the label, so leave it out rather than park it on someone else's row.
+  if (visibleBottom - visibleTop < 12) return null;
+  return Math.min(
+    Math.max((top + bottom) / 2, visibleTop + 9),
+    visibleBottom - 9,
+  );
+}
+
 function showOrganColumn() {
   return state.sort === 'organ' && organGroups().some((g) => g.organ);
 }
@@ -987,12 +1009,9 @@ function paint(ctx, vw, vh) {
         ctx.stroke();
       }
       if (!group.organ) return;
+      const y = groupLabelY(top, bottom, HM.band, vh);
+      if (y === null) return;
       const label = state.organJa[group.organ] || group.organ;
-      // Keep the group label in view while its rows are on screen.
-      const y = Math.min(
-        Math.max((top + bottom) / 2, Math.max(top, HM.band) + 9),
-        Math.min(bottom, vh) - 9,
-      );
       ctx.fillStyle = muted;
       ctx.fillText(truncate(ctx, label, HM.organCol - 18), 12, y);
     });

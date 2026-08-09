@@ -11,7 +11,7 @@
 // A stale Docker image or a cached script is otherwise invisible: the page
 // looks fine and simply behaves like an older build, which is impossible to
 // tell apart from a bug.  Keep in step with hpa_cellexp/__init__.py.
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.5.1';
 
 // ---------------------------------------------------------------------------
 // state
@@ -868,11 +868,12 @@ function showOrganColumn() {
   return state.sort === 'organ' && organGroups().some((g) => g.organ);
 }
 
-// Thickness of the rule drawn at every organ boundary.  It has to be heavier
-// than a gridline: the boundaries were invisible at a 16px row pitch and the
-// sheet got read as one continuous list, with the labels looking as though
-// they belonged to whichever rows happened to be next to them.
-const GROUP_RULE_WIDTH = 2;
+// Thickness of the rule drawn at every organ boundary.  A hairline, but in
+// the muted ink rather than the axis color - what made the boundaries
+// invisible at a 16px row pitch was the weight of the color, not the width.
+// Kept at exactly 1 so the half-pixel offset below lands the line on a device
+// pixel; anything else renders as a soft two-pixel smear.
+const GROUP_RULE_WIDTH = 1;
 
 /** Rows that start a new organ, i.e. where a rule is drawn. */
 function groupBoundaryRows() {

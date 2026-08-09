@@ -16,7 +16,10 @@
     <p class="sub">Human Protein Atlas cell line RNA-seq · 遺伝子ごとの細胞株発現プロファイル</p>
   </div>
   <div class="topbar-spacer"></div>
-  <span class="dataset-chip" id="datasetChip">データセット読込中…</span>
+  <button type="button" class="dataset-chip" id="datasetChip"
+          aria-expanded="false" aria-controls="sourcePanel"
+          title="使用中のデータファイルを表示">データセット読込中…</button>
+  <div class="source-panel" id="sourcePanel" hidden role="dialog" aria-label="データソース"></div>
   <button class="icon-button" id="themeToggle" type="button" title="表示テーマを切り替え" aria-label="表示テーマを切り替え">◐</button>
 </header>
 

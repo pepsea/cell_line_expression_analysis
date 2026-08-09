@@ -20,6 +20,7 @@ and cell lines (tens of thousands of small dicts) rather than to the row count.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import sys
@@ -28,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence
 
 from . import columns as C
+from .config import SCHEMA_VERSION
 from . import reference as R
 from .sources import read_rows
 
@@ -85,6 +87,23 @@ def _apply_schema(conn: sqlite3.Connection) -> None:
         conn.executescript(handle.read())
 
 
+def _file_info(path: Optional[str]) -> Optional[Dict[str, object]]:
+    """Identify an input file well enough to tell two releases apart."""
+    if not path:
+        return None
+    info: Dict[str, object] = {
+        "name": os.path.basename(path),
+        "path": os.path.abspath(path),
+    }
+    try:
+        stat = os.stat(path)
+        info["bytes"] = stat.st_size
+        info["modified"] = time.strftime("%Y-%m-%d %H:%M", time.localtime(stat.st_mtime))
+    except OSError:
+        pass
+    return info
+
+
 def _to_float(value: str) -> Optional[float]:
     if value is None:
         return None
@@ -130,6 +149,7 @@ class _Interner:
 class CellLineRecord:
     name: str
     organ: Optional[str] = None
+    organ_source: Optional[str] = None
     tissue: Optional[str] = None
     disease: Optional[str] = None
     species: Optional[str] = None
@@ -177,9 +197,22 @@ def _load_metadata(path: str, report: IngestReport) -> Dict[str, CellLineRecord]
 
             tissue = cell(row, "tissue")
             disease = cell(row, "disease")
-            organ = R.normalise_organ(cell(row, "organ"))
-            if organ is None:
-                organ = R.organ_from_text(tissue, disease)
+
+            # Resolve the organ and remember HOW it was resolved, so a
+            # surprising assignment can be traced instead of just doubted.
+            explicit = R.normalise_organ(cell(row, "organ"))
+            inferred = R.organ_from_text(disease, tissue)
+            if explicit and R.is_broad_organ(explicit) and inferred:
+                organ = inferred
+                organ_source = "{}列を疾患/組織名で細分化 ({} → {})".format(
+                    "organ", explicit, inferred
+                )
+            elif explicit:
+                organ, organ_source = explicit, "メタデータの organ 列"
+            elif inferred:
+                organ, organ_source = inferred, "疾患/組織名からの推定"
+            else:
+                organ, organ_source = None, None
 
             record = records.get(name)
             if record is None:
@@ -188,7 +221,8 @@ def _load_metadata(path: str, report: IngestReport) -> Dict[str, CellLineRecord]
 
             # Merge: never overwrite an already-populated field, so passing
             # several metadata files layers them in argument order.
-            record.organ = record.organ or organ
+            if record.organ is None and organ is not None:
+                record.organ, record.organ_source = organ, organ_source
             record.tissue = record.tissue or R.normalise_organ(tissue)
             record.disease = record.disease or disease
             record.species = record.species or (
@@ -275,7 +309,10 @@ def build_database(
                 if existing is None:
                     metadata[name] = record
                 else:
-                    for attr in ("organ", "tissue", "disease", "species", "cellosaurus_id", "sex", "age"):
+                    if existing.organ is None and record.organ is not None:
+                        existing.organ = record.organ
+                        existing.organ_source = record.organ_source
+                    for attr in ("tissue", "disease", "species", "cellosaurus_id", "sex", "age"):
                         if getattr(existing, attr) is None:
                             setattr(existing, attr, getattr(record, attr))
 
@@ -391,18 +428,25 @@ def build_database(
         report.genes = len(gene_ids)
 
         unannotated = 0
+        tcga_inferred = 0
         cell_rows = []
         for name, cid in cell_ids.items():
             record = metadata.get(name) or CellLineRecord(name=name)
             organ = record.organ
+            organ_source = record.organ_source
             if organ is None:
                 best = best_tcga.get(name)
                 if best is not None:
                     organ = R.tcga_organ_map().get(best[1])
-                    if organ and record.source is None:
-                        record.source = "TCGA inference"
+                    if organ:
+                        # Similarity to a TCGA cohort is not provenance - it is
+                        # the weakest source here and is labelled as such.
+                        organ_source = "TCGA類似度からの推定 ({}) ※参考値".format(best[1])
+                        tcga_inferred += 1
             if organ is None:
                 organ = R.organ_from_text(name)
+                if organ:
+                    organ_source = "細胞株名からの推定 ※参考値"
             if organ is None:
                 unannotated += 1
             cell_rows.append(
@@ -412,6 +456,7 @@ def build_database(
                     name.upper(),
                     R.name_key(name),
                     organ,
+                    organ_source,
                     record.tissue,
                     record.disease,
                     R.normalise_species(record.species),
@@ -423,12 +468,17 @@ def build_database(
             )
         cursor.executemany(
             "INSERT INTO cell_lines "
-            "(id, name, name_uc, name_key, organ, tissue, disease, species, "
-            " cellosaurus_id, sex, age, source) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "(id, name, name_uc, name_key, organ, organ_source, tissue, disease, "
+            " species, cellosaurus_id, sex, age, source) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             cell_rows,
         )
         report.cell_lines = len(cell_rows)
+        if tcga_inferred:
+            report.warnings.append(
+                "{} cell lines have an organ inferred from TCGA similarity rather than "
+                "from metadata; these are marked '参考値' in the UI".format(tcga_inferred)
+            )
         if unannotated:
             report.warnings.append(
                 "{} of {} cell lines have no organ assignment; supply a metadata file "
@@ -452,10 +502,21 @@ def build_database(
         # 6. Metadata --------------------------------------------------------
         report.seconds = time.time() - started
         meta_values = {
+            "schema_version": str(SCHEMA_VERSION),
             "release": release or "unspecified",
             "is_demo": "1" if demo else "0",
             "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "expression_source": os.path.basename(expression_path),
+            # Which files this database was actually built from, so the site
+            # can state its provenance instead of just "some HPA release".
+            "sources": json.dumps(
+                {
+                    "expression": _file_info(expression_path),
+                    "metadata": [_file_info(p) for p in (metadata_paths or ())],
+                    "tcga": _file_info(tcga_path),
+                },
+                ensure_ascii=False,
+            ),
             "metrics": ",".join(report.metrics),
             "gene_count": str(report.genes),
             "cell_line_count": str(report.cell_lines),

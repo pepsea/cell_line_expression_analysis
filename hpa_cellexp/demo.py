@@ -11,10 +11,12 @@ database carries ``meta.is_demo = 1`` and the UI shows a permanent banner.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import os
 from typing import Dict, List, Optional, Tuple
 
+from .config import SCHEMA_VERSION
 from .ingest import IngestReport, connect_for_write
 from .reference import name_key
 
@@ -169,12 +171,12 @@ def build_demo_database(db_path: str) -> IngestReport:
 
         cursor.executemany(
             "INSERT INTO cell_lines "
-            "(id, name, name_uc, name_key, organ, tissue, disease, species, "
-            " cellosaurus_id, sex, age, source) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "(id, name, name_uc, name_key, organ, organ_source, tissue, disease, "
+            " species, cellosaurus_id, sex, age, source) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [
-                (i + 1, name, name.upper(), name_key(name), organ, None, disease,
-                 "Homo sapiens", cvcl, None, None, "demo")
+                (i + 1, name, name.upper(), name_key(name), organ, "デモデータの定義値",
+                 None, disease, "Homo sapiens", cvcl, None, None, "demo")
                 for i, (name, organ, disease, cvcl) in enumerate(_CELL_LINES)
             ],
         )
@@ -190,10 +192,21 @@ def build_demo_database(db_path: str) -> IngestReport:
             "INSERT OR REPLACE INTO meta (key, value) VALUES (?,?)",
             sorted(
                 {
+                    "schema_version": str(SCHEMA_VERSION),
                     "release": "DEMO (synthetic values)",
                     "is_demo": "1",
                     "built_at": "",
                     "expression_source": "hpa_cellexp.demo",
+                    "sources": json.dumps(
+                        {
+                            "expression": {
+                                "name": "hpa_cellexp/demo.py（合成データ・実測値ではありません）"
+                            },
+                            "metadata": [],
+                            "tcga": None,
+                        },
+                        ensure_ascii=False,
+                    ),
                     "metrics": "tpm,ptpm,ntpm",
                     "gene_count": str(len(gene_ids)),
                     "cell_line_count": str(len(_CELL_LINES)),

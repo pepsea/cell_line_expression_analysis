@@ -144,6 +144,46 @@ a { color: var(--accent); }
   white-space: nowrap;
 }
 
+button.dataset-chip { cursor: pointer; font: inherit; font-size: 12px; }
+button.dataset-chip:hover { color: var(--ink); border-color: var(--axis); }
+button.dataset-chip[aria-expanded="true"] { border-color: var(--accent); color: var(--ink); }
+
+.source-panel {
+  position: absolute;
+  top: 58px;
+  right: 22px;
+  z-index: 50;
+  width: min(560px, calc(100vw - 44px));
+  max-height: 70vh;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--axis);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px 16px;
+  font-size: 12.5px;
+}
+.source-panel[hidden] { display: none; }
+.source-panel h2 {
+  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-muted); margin: 0 0 10px;
+}
+.source-panel dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 14px; margin: 0; }
+.source-panel dt { color: var(--ink-muted); white-space: nowrap; }
+.source-panel dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.source-panel .file { font-weight: 650; }
+.source-panel .path {
+  display: block; color: var(--ink-muted); font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.source-panel .none { color: var(--ink-muted); }
+.source-panel hr { border: none; border-top: 1px solid var(--grid); margin: 12px 0; }
+.source-panel .warn { color: #8a5a00; font-weight: 600; }
+:root[data-theme="dark"] .source-panel .warn { color: #fab219; }
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .source-panel .warn { color: #fab219; }
+}
+
 .icon-button {
   background: var(--surface-sunk);
   border: 1px solid var(--border);
@@ -374,6 +414,8 @@ textarea:focus, input:focus, select:focus {
   text-align: center;
   color: var(--ink-muted);
   font-size: 14px;
+  /* Server messages (e.g. "rebuild the database, run: ...") are multi-line. */
+  white-space: pre-line;
 }
 .state.error { color: var(--critical); }
 

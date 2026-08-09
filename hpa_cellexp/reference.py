@@ -22,6 +22,8 @@ _REFERENCE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "refer
 
 __all__ = [
     "name_key",
+    "BROAD_ORGANS",
+    "is_broad_organ",
     "labels_ja",
     "label_ja",
     "tcga_organ_map",
@@ -135,6 +137,45 @@ def organ_from_text(*texts: Optional[str]) -> Optional[str]:
             if pattern in haystack:
                 return organ
     return None
+
+
+# Organ values that name a whole tract or system rather than an organ.  When
+# the source file gives one of these AND the disease/tissue text points at
+# something more specific, the specific one wins - otherwise every colorectal
+# line lands under "Intestine" and searching for 結腸 (Colon) finds nothing.
+BROAD_ORGANS = frozenset(
+    {
+        "intestine",
+        "intestinal tract",
+        "gastrointestinal",
+        "gastrointestinal tract",
+        "gi tract",
+        "digestive system",
+        "digestive tract",
+        "endocrine gland",
+        "endocrine system",
+        "female reproductive system",
+        "male reproductive system",
+        "reproductive system",
+        "urinary tract",
+        "urogenital",
+        "respiratory system",
+        "respiratory tract",
+        "nervous system",
+        "lymphatic system",
+        "haematopoietic system",
+        "hematopoietic system",
+        "haematopoietic and lymphoid tissue",
+        "hematopoietic and lymphoid tissue",
+        "soft tissues",
+        "other",
+        "unknown",
+    }
+)
+
+
+def is_broad_organ(value: Optional[str]) -> bool:
+    return bool(value) and value.strip().lower() in BROAD_ORGANS
 
 
 def normalise_organ(value: Optional[str]) -> Optional[str]:

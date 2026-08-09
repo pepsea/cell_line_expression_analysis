@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import threading
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from .config import SCHEMA_VERSION
 from .reference import cellosaurus_url, label_ja, name_key
 
-__all__ = ["Database", "DatabaseMissing"]
+__all__ = ["Database", "DatabaseMissing", "SchemaOutdated"]
 
 METRICS = ("ntpm", "ptpm", "tpm")
 
@@ -20,6 +22,14 @@ _PARAM_CHUNK = 500
 
 class DatabaseMissing(RuntimeError):
     pass
+
+
+class SchemaOutdated(DatabaseMissing):
+    """The database was built by an older version and must be rebuilt.
+
+    Subclasses DatabaseMissing so every caller that already handles a missing
+    database reports this the same way instead of surfacing a raw SQL error.
+    """
 
 
 class Database:
@@ -51,8 +61,30 @@ class Database:
             )
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA query_only = ON")
+            self._check_schema(conn)
             self._local.conn = conn
         return conn
+
+    def _check_schema(self, conn: sqlite3.Connection) -> None:
+        try:
+            row = conn.execute(
+                "SELECT value FROM meta WHERE key = 'schema_version'"
+            ).fetchone()
+        except sqlite3.Error:
+            row = None
+        found = int(row["value"]) if row and str(row["value"]).isdigit() else 0
+        if found != SCHEMA_VERSION:
+            conn.close()
+            raise SchemaOutdated(
+                "データベースの形式が古いため再構築が必要です"
+                "（このデータベース: schema v{found} / 必要: v{needed}）。\n"
+                "Database schema is v{found} but this version needs v{needed}. Rebuild it:\n"
+                "  python -m hpa_cellexp build --expression rna_celline.tsv.zip "
+                "--metadata cell_line_analysis_data.tsv.zip\n"
+                "  (デモの場合: python -m hpa_cellexp demo)".format(
+                    found=found or "不明", needed=SCHEMA_VERSION
+                )
+            )
 
     def _query(self, sql: str, params: Sequence[Any] = ()) -> List[sqlite3.Row]:
         return self.connect().execute(sql, params).fetchall()
@@ -63,7 +95,13 @@ class Database:
         rows = self._query("SELECT key, value FROM meta")
         meta = {row["key"]: row["value"] for row in rows}
         metrics = [m for m in (meta.get("metrics") or "").split(",") if m]
+        try:
+            sources = json.loads(meta.get("sources") or "{}")
+        except ValueError:
+            sources = {}
         return {
+            "databasePath": os.path.abspath(self.path),
+            "sources": sources,
             "release": meta.get("release", "unspecified"),
             "isDemo": meta.get("is_demo") == "1",
             "builtAt": meta.get("built_at"),
@@ -216,7 +254,8 @@ class Database:
     def cell_lines(self, limit: Optional[int] = None, **filters: Any) -> List[Dict[str, Any]]:
         where, params = self._cell_line_filter(**filters)
         sql = (
-            "SELECT id, name, organ, tissue, disease, species, cellosaurus_id, sex, age "
+            "SELECT id, name, organ, organ_source, tissue, disease, species, "
+            "cellosaurus_id, sex, age "
             "FROM cell_lines" + where + " ORDER BY organ IS NULL, organ, name"
         )
         if limit:
@@ -236,6 +275,8 @@ class Database:
             "id": row["id"],
             "name": name,
             "organ": row["organ"],
+            "organJa": label_ja(row["organ"]),
+            "organSource": row["organ_source"],
             "tissue": row["tissue"],
             "disease": row["disease"],
             "species": row["species"],

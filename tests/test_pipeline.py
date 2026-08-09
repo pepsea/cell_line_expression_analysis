@@ -91,6 +91,61 @@ class ReferenceTests(unittest.TestCase):
         self.assertEqual(R.organ_from_text(None, "cutaneous melanoma"), "Skin")
         self.assertIsNone(R.organ_from_text("", None))
 
+    def test_substring_hazards_resolve_to_the_right_organ(self):
+        """First-substring-wins makes ordering load-bearing.
+
+        Each of these pairs a short pattern with a longer term that contains
+        it; every one of them was resolving to the wrong organ before.
+        """
+        cases = {
+            # "renal" sits inside "adrenal"
+            "Adrenal gland": "Adrenal gland",
+            "Adrenocortical carcinoma": "Adrenal gland",
+            "Pheochromocytoma": "Adrenal gland",
+            "Renal cell carcinoma": "Kidney",
+            # "thyroid" sits inside "parathyroid"
+            "Parathyroid adenoma": "Parathyroid gland",
+            "Thyroid carcinoma": "Thyroid gland",
+            # ovarian germ cell tumours are not testicular
+            "Ovarian germ cell tumor": "Ovary",
+            "Testicular germ cell tumor": "Testis",
+            # "bladder" sits inside "gallbladder"
+            "Gallbladder carcinoma": "Gallbladder",
+            "Urinary bladder carcinoma": "Urinary bladder",
+            # "rectal" sits inside "colorectal"
+            "Colorectal adenocarcinoma": "Colon",
+            "Rectal adenocarcinoma": "Rectum",
+            # "bone" sits inside "bone marrow"
+            "Bone marrow": "Bone marrow",
+            "Osteosarcoma": "Bone",
+            # "oral" used to be a bare pattern and swallowed "temporal"
+            "Temporal lobe glioma": "Brain",
+            "Oral cavity squamous cell carcinoma": "Head and neck",
+            # cervical lymph node is lymphoid, not cervix
+            "Cervical lymph node": "Lymphoid tissue",
+            "Cervical adenocarcinoma": "Cervix",
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(R.organ_from_text(text), expected)
+
+    def test_intestinal_terms_resolve(self):
+        """Regression: "Large intestine" matched nothing, so colorectal lines
+        could end up with no organ at all."""
+        self.assertEqual(R.organ_from_text("Large intestine"), "Colon")
+        self.assertEqual(R.organ_from_text("Sigmoid colon"), "Colon")
+        self.assertEqual(R.organ_from_text("Caecum"), "Colon")
+        self.assertEqual(R.organ_from_text("Small intestine"), "Small intestine")
+        self.assertEqual(R.organ_from_text("Duodenum"), "Small intestine")
+        # Only the unqualified term falls through to the broad category.
+        self.assertEqual(R.organ_from_text("Intestine"), "Intestine")
+
+    def test_broad_organs(self):
+        self.assertTrue(R.is_broad_organ("Intestine"))
+        self.assertTrue(R.is_broad_organ("  gastrointestinal tract "))
+        self.assertFalse(R.is_broad_organ("Colon"))
+        self.assertFalse(R.is_broad_organ(None))
+
     def test_name_key_strips_punctuation(self):
         self.assertEqual(R.name_key("HEP G2"), "HEPG2")
         self.assertEqual(R.name_key("MDA-MB-231"), "MDAMB231")
@@ -245,6 +300,109 @@ class TcgaFallbackTests(unittest.TestCase):
             self.assertIn("search?input=", rows["K-562"]["databaseUrl"])
 
 
+class OrganAssignmentTests(unittest.TestCase):
+    """Where 由来臓器 comes from, and that it is traceable."""
+
+    EXPR = (
+        "Gene name\tCell line\tnTPM\n"
+        "GAPDH\tCACO-2\t900\n"
+        "GAPDH\tHT-29\t800\n"
+        "GAPDH\tA-549\t700\n"
+        "GAPDH\tMYSTERY-1\t600\n"
+    )
+
+    def _build(self, metadata_text, tcga_text=None):
+        d = self.tmp.name
+        db_path = os.path.join(d, "organ-{}.sqlite".format(abs(hash(metadata_text)) % 10 ** 8))
+        build_database(
+            db_path=db_path,
+            expression_path=write(d, "e-{}.tsv".format(abs(hash(metadata_text)) % 10 ** 8), self.EXPR),
+            metadata_paths=[write(d, "m-{}.tsv".format(abs(hash(metadata_text)) % 10 ** 8), metadata_text)]
+            if metadata_text
+            else [],
+            tcga_path=write(d, "t-{}.tsv".format(abs(hash(str(tcga_text))) % 10 ** 8), tcga_text)
+            if tcga_text
+            else None,
+            progress=False,
+        )
+        return {c["name"]: c for c in Database(db_path).cell_lines()}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_broad_organ_column_is_refined_by_disease(self):
+        """A source that files colorectal lines under the whole tract must
+        still let them be found under 結腸 / Colon."""
+        rows = self._build(
+            "Cell line\tOrgan\tDisease\n"
+            "CACO-2\tIntestine\tColorectal adenocarcinoma\n"
+            "HT-29\tIntestine\tColon adenocarcinoma\n"
+            "A-549\tRespiratory system\tLung adenocarcinoma\n"
+        )
+        self.assertEqual(rows["CACO-2"]["organ"], "Colon")
+        self.assertEqual(rows["HT-29"]["organ"], "Colon")
+        self.assertEqual(rows["A-549"]["organ"], "Lung")
+        self.assertIn("Intestine", rows["CACO-2"]["organSource"])
+
+    def test_specific_organ_column_is_kept_verbatim(self):
+        rows = self._build(
+            "Cell line\tOrgan\tDisease\n"
+            "CACO-2\tColon\tColorectal adenocarcinoma\n"
+            "A-549\tLung\tLung adenocarcinoma\n"
+        )
+        self.assertEqual(rows["CACO-2"]["organ"], "Colon")
+        self.assertEqual(rows["CACO-2"]["organSource"], "メタデータの organ 列")
+
+    def test_organ_inferred_from_disease_when_no_organ_column(self):
+        rows = self._build(
+            "Cell line\tDisease\n"
+            "CACO-2\tColorectal adenocarcinoma\n"
+            "A-549\tLung adenocarcinoma\n"
+        )
+        self.assertEqual(rows["CACO-2"]["organ"], "Colon")
+        self.assertEqual(rows["CACO-2"]["organSource"], "疾患/組織名からの推定")
+
+    def test_tcga_derived_organ_is_flagged_as_approximate(self):
+        """TCGA similarity is not provenance; it must be visibly weaker."""
+        rows = self._build(
+            None,
+            "TCGA cancer\tCell line\tRank\nCOAD\tCACO-2\t1\nLUAD\tA-549\t1\n",
+        )
+        self.assertEqual(rows["CACO-2"]["organ"], "Colon")
+        self.assertIn("TCGA", rows["CACO-2"]["organSource"])
+        self.assertIn("参考値", rows["CACO-2"]["organSource"])
+
+    def test_unassignable_cell_line_gets_no_organ(self):
+        rows = self._build("Cell line\tDisease\nCACO-2\tColorectal adenocarcinoma\n")
+        self.assertIsNone(rows["MYSTERY-1"]["organ"])
+        self.assertIsNone(rows["MYSTERY-1"]["organSource"])
+
+    def test_organ_facet_finds_the_refined_lines(self):
+        d = self.tmp.name
+        db_path = os.path.join(d, "facet.sqlite")
+        build_database(
+            db_path=db_path,
+            expression_path=write(d, "ef.tsv", self.EXPR),
+            metadata_paths=[
+                write(
+                    d,
+                    "mf.tsv",
+                    "Cell line\tOrgan\tDisease\n"
+                    "CACO-2\tIntestine\tColorectal adenocarcinoma\n"
+                    "HT-29\tIntestine\tColon adenocarcinoma\n"
+                    "A-549\tIntestine\tLung adenocarcinoma\n",
+                )
+            ],
+            progress=False,
+        )
+        db = Database(db_path)
+        colon = sorted(r["name"] for r in db.cell_lines(organs=["Colon"]))
+        self.assertEqual(colon, ["CACO-2", "HT-29"])
+
+
 class LegacySchemaTests(unittest.TestCase):
     """An older release with TPM only and no Ensembl column must still load."""
 
@@ -338,6 +496,172 @@ class ApiTests(unittest.TestCase):
     def test_gene_autocomplete(self):
         body = self.client.get("/api/genes", params={"q": "eg"}).json()
         self.assertEqual([g["symbol"] for g in body["results"]], ["EGFR"])
+
+
+class SourceProvenanceTests(unittest.TestCase):
+    """The site has to be able to say which files it was built from."""
+
+    def test_meta_records_every_input_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            db_path = os.path.join(d, "s.sqlite")
+            expression = write_zip(d, "rna_celline.tsv.zip", "rna_celline.tsv", EXPRESSION)
+            metadata = write(d, "cell_line_analysis_data.tsv", METADATA)
+            tcga = write(d, "rna_cell_line_tcga_comparison.tsv", TCGA)
+            build_database(
+                db_path=db_path,
+                expression_path=expression,
+                metadata_paths=[metadata],
+                tcga_path=tcga,
+                release="HPA v24",
+                progress=False,
+            )
+            info = Database(db_path).info()
+            sources = info["sources"]
+
+            self.assertEqual(sources["expression"]["name"], "rna_celline.tsv.zip")
+            self.assertEqual(sources["expression"]["path"], os.path.abspath(expression))
+            self.assertGreater(sources["expression"]["bytes"], 0)
+            self.assertIn("modified", sources["expression"])
+
+            self.assertEqual(
+                [f["name"] for f in sources["metadata"]], ["cell_line_analysis_data.tsv"]
+            )
+            self.assertEqual(sources["tcga"]["name"], "rna_cell_line_tcga_comparison.tsv")
+            self.assertEqual(info["databasePath"], os.path.abspath(db_path))
+            self.assertEqual(info["release"], "HPA v24")
+
+    def test_optional_inputs_are_reported_as_absent(self):
+        with tempfile.TemporaryDirectory() as d:
+            db_path = os.path.join(d, "s2.sqlite")
+            build_database(
+                db_path=db_path,
+                expression_path=write(d, "e.tsv", EXPRESSION),
+                progress=False,
+            )
+            sources = Database(db_path).info()["sources"]
+            self.assertEqual(sources["metadata"], [])
+            self.assertIsNone(sources["tcga"])
+
+    def test_sources_are_served_by_the_api(self):
+        from fastapi.testclient import TestClient
+
+        with tempfile.TemporaryDirectory() as d:
+            db_path = os.path.join(d, "s3.sqlite")
+            build_database(
+                db_path=db_path,
+                expression_path=write_zip(d, "rna_celline.tsv.zip", "rna_celline.tsv", EXPRESSION),
+                metadata_paths=[write(d, "meta.tsv", METADATA)],
+                progress=False,
+            )
+            body = TestClient(create_app(db_path)).get("/api/meta").json()
+            self.assertEqual(body["sources"]["expression"]["name"], "rna_celline.tsv.zip")
+            self.assertEqual([f["name"] for f in body["sources"]["metadata"]], ["meta.tsv"])
+
+    def test_demo_sources_say_they_are_synthetic(self):
+        from hpa_cellexp.demo import build_demo_database
+
+        with tempfile.TemporaryDirectory() as d:
+            db_path = os.path.join(d, "demo.sqlite")
+            build_demo_database(db_path)
+            info = Database(db_path).info()
+            self.assertTrue(info["isDemo"])
+            self.assertIn("合成", info["sources"]["expression"]["name"])
+
+
+class SchemaVersionTests(unittest.TestCase):
+    """A database from an older build must fail loudly, not halfway.
+
+    Before this, a stale database served /api/meta happily (the dataset banner
+    appeared) and then returned 500 on every cell line query - which looks like
+    "the search is broken", not "the database needs rebuilding".
+    """
+
+    def _stale_db(self, directory):
+        from hpa_cellexp.config import SCHEMA_VERSION
+
+        db_path = os.path.join(directory, "stale.sqlite")
+        build_database(
+            db_path=db_path,
+            expression_path=write(directory, "e.tsv", EXPRESSION),
+            progress=False,
+        )
+        import sqlite3
+
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "UPDATE meta SET value = ? WHERE key = 'schema_version'",
+            (str(SCHEMA_VERSION - 1),),
+        )
+        conn.commit()
+        conn.close()
+        return db_path
+
+    def test_fresh_database_is_stamped(self):
+        from hpa_cellexp.config import SCHEMA_VERSION
+
+        with tempfile.TemporaryDirectory() as d:
+            db_path = os.path.join(d, "v.sqlite")
+            build_database(
+                db_path=db_path,
+                expression_path=write(d, "e.tsv", EXPRESSION),
+                progress=False,
+            )
+            import sqlite3
+
+            conn = sqlite3.connect(db_path)
+            value = conn.execute(
+                "SELECT value FROM meta WHERE key = 'schema_version'"
+            ).fetchone()[0]
+            conn.close()
+            self.assertEqual(int(value), SCHEMA_VERSION)
+            Database(db_path).info()  # must not raise
+
+    def test_demo_database_is_stamped(self):
+        from hpa_cellexp.config import SCHEMA_VERSION
+        from hpa_cellexp.demo import build_demo_database
+
+        with tempfile.TemporaryDirectory() as d:
+            db_path = os.path.join(d, "demo.sqlite")
+            build_demo_database(db_path)
+            db = Database(db_path)
+            db.info()  # must not raise
+            import sqlite3
+
+            conn = sqlite3.connect(db_path)
+            value = conn.execute(
+                "SELECT value FROM meta WHERE key = 'schema_version'"
+            ).fetchone()[0]
+            conn.close()
+            self.assertEqual(int(value), SCHEMA_VERSION)
+
+    def test_stale_database_raises_with_rebuild_instructions(self):
+        from hpa_cellexp.queries import SchemaOutdated
+
+        with tempfile.TemporaryDirectory() as d:
+            db = Database(self._stale_db(d))
+            with self.assertRaises(SchemaOutdated) as ctx:
+                db.info()
+            message = str(ctx.exception)
+            self.assertIn("再構築", message)
+            self.assertIn("python -m hpa_cellexp build", message)
+
+    def test_stale_database_fails_the_metadata_endpoint_too(self):
+        """Not just the cell line queries - the page must say so immediately."""
+        from fastapi.testclient import TestClient
+
+        with tempfile.TemporaryDirectory() as d:
+            client = TestClient(create_app(self._stale_db(d)))
+            for path in ("/api/meta", "/api/cell-lines", "/api/genes?q=AL"):
+                with self.subTest(path=path):
+                    response = client.get(path)
+                    self.assertEqual(response.status_code, 503)
+                    self.assertIn("再構築", response.json()["detail"])
+
+    def test_serve_refuses_a_stale_database(self):
+        from hpa_cellexp.__main__ import main
+
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(main(["--database", self._stale_db(d), "serve"]), 1)
 
 
 class CliTests(unittest.TestCase):

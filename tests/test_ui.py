@@ -199,6 +199,95 @@ class UiTests(unittest.TestCase):
         )
         self.assertEqual(asc, sorted(asc))
 
+    # Independently recomputed in the browser from the rendered payload, so the
+    # assertions do not just re-run the implementation being tested.
+    _KEYS_JS = """(basis) => {
+        const d = state.result;
+        const maxima = [];
+        for (let r = 0; r < d.genes.length; r += 1) {
+          let m = 0;
+          for (const v of d.values[r]) if (v !== null && v > m) m = v;
+          maxima.push(m);
+        }
+        const usable = maxima.map((m, r) => (m > 0 ? r : -1)).filter((r) => r >= 0);
+        const norm = (v, m) => (m > 0 ? Math.log10(1 + v) / Math.log10(1 + m) : 0);
+        return state.view.map((i) => {
+          let sum = 0, n = 0, lo = Infinity;
+          for (const r of usable) {
+            const v = d.values[r][i];
+            if (v === null || v === undefined) continue;
+            const x = basis === 'mean' ? v : norm(v, maxima[r]);
+            sum += x; n += 1; if (x < lo) lo = x;
+          }
+          if (!n) return null;
+          return basis === 'norm-min' ? lo : sum / n;
+        });
+      }"""
+
+    def _ordered_desc(self, basis):
+        keys = self.page.evaluate(self._KEYS_JS, basis)
+        self.assertEqual(
+            [round(k, 9) for k in keys],
+            [round(k, 9) for k in sorted(keys, reverse=True)],
+            "rows are not ordered by the {} basis".format(basis),
+        )
+        return keys
+
+    def test_aggregate_sort_bases_are_offered(self):
+        self.run_genes("GAPDH, ALB, KLK3, PTPRC")
+        self.page.select_option("#sortSelect", "value-desc")
+        self.page.wait_for_timeout(300)
+        values = self.page.eval_on_selector_all("#sortGene option", "e => e.map(o => o.value)")
+        for basis in ("norm-min", "norm-mean", "mean"):
+            self.assertIn(basis, values)
+
+    def test_normalised_mean_is_not_dominated_by_the_largest_gene(self):
+        """A plain mean ranks by GAPDH alone; the normalised one must not."""
+        self.run_genes("GAPDH, ALB, KLK3, PTPRC, MITF, GFAP")
+        self.page.select_option("#sortSelect", "value-desc")
+        self.page.wait_for_timeout(300)
+
+        self.page.select_option("#sortGene", "mean")
+        self.page.wait_for_timeout(400)
+        self._ordered_desc("mean")
+        by_mean = self.visible_names(6)
+
+        self.page.select_option("#sortGene", "norm-mean")
+        self.page.wait_for_timeout(400)
+        self._ordered_desc("norm-mean")
+        self.assertNotEqual(by_mean, self.visible_names(6))
+
+    def test_min_basis_puts_evenly_expressed_cell_lines_first(self):
+        """The bottleneck basis: a cell line only ranks high when its weakest
+        gene is high, which is the "全遺伝子が満遍なく発現" question."""
+        self.run_genes("GAPDH, ALB, KLK3, PTPRC, MITF, GFAP")
+        self.page.select_option("#sortSelect", "value-desc")
+        self.page.wait_for_timeout(300)
+        self.page.select_option("#sortGene", "norm-min")
+        self.page.wait_for_timeout(400)
+        self._ordered_desc("norm-min")
+
+        # Anything with a zero must rank below everything without one.
+        has_zero = self.page.evaluate(
+            """() => state.view.map(i =>
+                 state.result.genes.some((_, r) => state.result.values[r][i] === 0))"""
+        )
+        first_zero = has_zero.index(True) if True in has_zero else len(has_zero)
+        self.assertNotIn(False, has_zero[first_zero:],
+                         "a cell line with no zero ranked below one with a zero")
+        self.assertGreater(first_zero, 0, "expected at least one evenly-expressed cell line")
+
+    def test_aggregate_basis_survives_a_rerun(self):
+        self.run_genes("GAPDH, ALB, PTPRC")
+        self.page.select_option("#sortSelect", "value-desc")
+        self.page.wait_for_timeout(300)
+        self.page.select_option("#sortGene", "norm-min")
+        self.page.wait_for_timeout(400)
+        self.page.click("#runButton")
+        self.page.wait_for_timeout(900)
+        self.assertEqual(self.page.evaluate("() => state.sortGene"), "norm-min")
+        self.assertEqual(self.page.input_value("#sortGene"), "norm-min")
+
     def test_single_gene_hides_the_reference_control(self):
         self.run_genes("ALB")
         self.page.select_option("#sortSelect", "value-desc")
@@ -236,6 +325,27 @@ class UiTests(unittest.TestCase):
         )
         self.page.wait_for_timeout(1500)
         self.assertEqual(self.visible_names(99), ["HEP G2"])
+
+    def test_dataset_chip_reveals_the_source_files(self):
+        chip = self.page.locator("#datasetChip")
+        panel = self.page.locator("#sourcePanel")
+        self.assertTrue(panel.is_hidden())
+
+        chip.click()
+        self.page.wait_for_timeout(200)
+        self.assertFalse(panel.is_hidden())
+        text = panel.inner_text()
+        self.assertIn("このサイトが使用しているデータ", text)
+        self.assertIn("発現マトリクス", text)
+        self.assertIn("細胞株メタデータ", text)
+        self.assertIn("データベース", text)
+        self.assertIn("ui.sqlite", text)
+        # the demo database must say so here too, not only in the banner
+        self.assertIn("合成", text)
+
+        self.page.mouse.click(700, 700)
+        self.page.wait_for_timeout(200)
+        self.assertTrue(panel.is_hidden())
 
     def test_heatmap_rows_are_cell_lines(self):
         """Orientation: cell lines down the side, genes across the top."""

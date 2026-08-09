@@ -46,6 +46,41 @@ def _cmd_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_organs(args: argparse.Namespace) -> int:
+    """Show how each cell line got its 由来臓器 - the answer to "is this wrong?"."""
+    from .queries import Database, DatabaseMissing
+
+    db = Database(args.database)
+    try:
+        rows = db.cell_lines(name_query=args.grep) if args.grep else db.cell_lines()
+    except DatabaseMissing as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+    if args.organ:
+        wanted = args.organ.strip().lower()
+        rows = [r for r in rows if (r["organ"] or "").lower() == wanted]
+
+    if not rows:
+        print("no cell lines matched", file=sys.stderr)
+        return 1
+
+    width = max(len(r["name"]) for r in rows)
+    print("{:<{w}}  {:<26} {:<34} {}".format("CELL LINE", "ORGAN", "DISEASE", "SOURCE", w=width))
+    for row in rows:
+        print(
+            "{:<{w}}  {:<26} {:<34} {}".format(
+                row["name"],
+                row["organ"] or "-",
+                (row["disease"] or "-")[:34],
+                row["organSource"] or "-",
+                w=width,
+            )
+        )
+    print("\n{} cell lines".format(len(rows)), file=sys.stderr)
+    return 0
+
+
 def _cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
@@ -61,6 +96,16 @@ def _cmd_serve(args: argparse.Namespace) -> int:
             "or try the demo: python -m hpa_cellexp demo".format(db_path),
             file=sys.stderr,
         )
+        return 1
+
+    # Fail fast on a stale database: it would otherwise start cleanly, show the
+    # dataset banner, and then 500 on every cell line query.
+    from .queries import Database, DatabaseMissing
+
+    try:
+        Database(db_path).info()
+    except DatabaseMissing as exc:
+        print(exc, file=sys.stderr)
         return 1
 
     print("serving {} on http://{}:{}".format(db_path, args.host, args.port), file=sys.stderr)
@@ -114,6 +159,13 @@ def main(argv=None) -> int:
 
     demo = sub.add_parser("demo", help="build a small synthetic database for UI testing")
     demo.set_defaults(func=_cmd_demo)
+
+    organs = sub.add_parser(
+        "organs", help="show each cell line's 由来臓器 and where that assignment came from"
+    )
+    organs.add_argument("--grep", help="only cell lines whose name matches (punctuation-insensitive)")
+    organs.add_argument("--organ", help="only cell lines assigned to this organ, e.g. Colon")
+    organs.set_defaults(func=_cmd_organs)
 
     serve = sub.add_parser("serve", help="run the web server")
     serve.add_argument("--host", default="127.0.0.1")

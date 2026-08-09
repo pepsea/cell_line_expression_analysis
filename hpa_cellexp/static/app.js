@@ -134,6 +134,7 @@ async function init() {
   if (meta.isDemo) $('demoBanner').classList.add('on');
 
   meta.facets.organs.forEach((o) => { if (o.labelJa) state.organJa[o.value] = o.labelJa; });
+  buildSourcePanel(meta);
 
   buildMetricRadios(meta.availableMetrics);
   buildFacet('speciesList', meta.facets.species, 'species', { preselectAll: true });
@@ -158,7 +159,7 @@ async function init() {
   $('tabTable').addEventListener('click', () => setView('table'));
   $('sortSelect').addEventListener('change', (e) => { state.sort = e.target.value; applySort(); });
   $('sortGene').addEventListener('change', (e) => {
-    state.sortGene = e.target.value === SORT_MEAN ? SORT_MEAN : Number(e.target.value);
+    state.sortGene = isAggregate(e.target.value) ? e.target.value : Number(e.target.value);
     applySort();
   });
   $('scaleSelect').addEventListener('change', (e) => { state.scale = e.target.value; renderHeatmap(); renderLegend(); });
@@ -170,6 +171,68 @@ async function init() {
   restoreFromHash();
   refreshMatchCount();
   updateGeneChips();
+}
+
+/** "Which files is this built from?" - shown behind the dataset chip. */
+function buildSourcePanel(meta) {
+  const panel = $('sourcePanel');
+  const chip = $('datasetChip');
+
+  const bytes = (n) => {
+    if (!n && n !== 0) return '';
+    const units = ['B', 'KiB', 'MiB', 'GiB'];
+    let value = n;
+    let i = 0;
+    while (value >= 1024 && i < units.length - 1) { value /= 1024; i += 1; }
+    return `${value.toFixed(value < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
+  };
+
+  const fileRow = (label, file) => {
+    if (!file) return `<dt>${label}</dt><dd class="none">（未使用）</dd>`;
+    const detail = [file.bytes ? bytes(file.bytes) : null, file.modified].filter(Boolean).join(' · ');
+    return `<dt>${label}</dt><dd>` +
+      `<span class="file">${escapeHtml(file.name || '')}</span>` +
+      (detail ? ` <span class="none">(${escapeHtml(detail)})</span>` : '') +
+      (file.path && file.path !== file.name ? `<span class="path">${escapeHtml(file.path)}</span>` : '') +
+      '</dd>';
+  };
+
+  const sources = meta.sources || {};
+  const metadataFiles = sources.metadata || [];
+  const metadataRows = metadataFiles.length
+    ? metadataFiles.map((f, i) => fileRow(i === 0 ? '細胞株メタデータ' : '　〃', f)).join('')
+    : fileRow('細胞株メタデータ', null);
+
+  panel.innerHTML =
+    '<h2>このサイトが使用しているデータ</h2>' +
+    (meta.isDemo
+      ? '<p class="warn" style="margin:0 0 10px">⚠️ デモデータです。発現値は合成値で、実測値ではありません。</p>'
+      : '') +
+    '<dl>' +
+      fileRow('発現マトリクス', sources.expression) +
+      metadataRows +
+      fileRow('TCGA比較', sources.tcga) +
+    '</dl><hr><dl>' +
+      `<dt>リリース</dt><dd>${escapeHtml(meta.release || '-')}</dd>` +
+      `<dt>収録内容</dt><dd>${meta.geneCount.toLocaleString()} 遺伝子 × ` +
+        `${meta.cellLineCount.toLocaleString()} 細胞株 / ` +
+        `${meta.expressionRows.toLocaleString()} 行</dd>` +
+      `<dt>指標</dt><dd>${escapeHtml((meta.metrics || []).join(', ') || '-')}</dd>` +
+      (meta.builtAt ? `<dt>構築日時</dt><dd>${escapeHtml(meta.builtAt)} (UTC)</dd>` : '') +
+      `<dt>データベース</dt><dd><span class="path">${escapeHtml(meta.databasePath || '-')}</span></dd>` +
+    '</dl>';
+
+  const close = () => { panel.hidden = true; chip.setAttribute('aria-expanded', 'false'); };
+  chip.addEventListener('click', (event) => {
+    event.stopPropagation();
+    const open = panel.hidden;
+    panel.hidden = !open;
+    chip.setAttribute('aria-expanded', String(open));
+  });
+  document.addEventListener('click', (event) => {
+    if (!panel.hidden && !panel.contains(event.target)) close();
+  });
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') close(); });
 }
 
 // ---------------------------------------------------------------------------
@@ -377,8 +440,8 @@ async function runAnalysis(options = {}) {
     state.result = data;
     state.maxima = null;
     state.groups = null;
-    // "mean" survives a re-run because it does not name a specific gene.
-    if (!keepScroll && state.sortGene !== SORT_MEAN) state.sortGene = 0;
+    // Aggregate bases survive a re-run; they do not name a specific gene.
+    if (!keepScroll && !isAggregate(state.sortGene)) state.sortGene = 0;
     saveToHash();
     renderGeneChipsWithMatches(data);
     populateSortGene(data);
@@ -432,7 +495,43 @@ function renderGeneChipsWithMatches(data) {
   }
 }
 
+/* Aggregate sort bases.
+ *
+ * A plain arithmetic mean is dominated by whichever gene has the largest
+ * absolute values - add GAPDH to the list and the ranking becomes a GAPDH
+ * ranking.  The other two bases put every gene on its own 0-1 scale first
+ * (log10(1+v) over that gene's own maximum in the current selection), so a
+ * housekeeping gene and a low-abundance marker count the same:
+ *
+ *   norm-mean : average of the per-gene normalised values - "high overall"
+ *   norm-min  : the SMALLEST per-gene normalised value - the bottleneck gene,
+ *               so a cell line only ranks high when EVERY gene is high.
+ *               This is the one to use for "全遺伝子が満遍なく発現".
+ *
+ * Genes that are flat zero across the whole selection carry no information and
+ * are skipped, otherwise they would drag every cell line's minimum to 0.
+ */
 const SORT_MEAN = 'mean';
+const SORT_NORM_MEAN = 'norm-mean';
+const SORT_NORM_MIN = 'norm-min';
+
+const SORT_BASES = [
+  { value: SORT_NORM_MIN,
+    label: '全遺伝子が満遍なく（最小値）',
+    help: '遺伝子ごとに0-1へ正規化し、その最小値で並べます。最も弱い遺伝子でも高い細胞株が上位に来ます。' },
+  { value: SORT_NORM_MEAN,
+    label: '全遺伝子の正規化平均',
+    help: '遺伝子ごとに0-1へ正規化してから平均します。発現量の大きい遺伝子に偏りません。' },
+  { value: SORT_MEAN,
+    label: '全遺伝子の平均（絶対値）',
+    help: '生の発現量の算術平均。GAPDH のような高発現遺伝子に強く影響されます。' },
+];
+
+const AGGREGATE_BASES = new Set(SORT_BASES.map((b) => b.value));
+
+function isAggregate(basis) {
+  return AGGREGATE_BASES.has(basis);
+}
 
 function populateSortGene(data) {
   const select = $('sortGene');
@@ -446,26 +545,40 @@ function populateSortGene(data) {
     select.dataset.genes = wanted;
     select.innerHTML = '';
     if (data.genes.length > 1) {
-      const mean = document.createElement('option');
-      mean.value = SORT_MEAN;
-      mean.textContent = '全遺伝子の平均';
-      select.append(mean);
+      const group = document.createElement('optgroup');
+      group.label = '全遺伝子をまとめて';
+      SORT_BASES.forEach((basis) => {
+        const option = document.createElement('option');
+        option.value = basis.value;
+        option.textContent = basis.label;
+        option.title = basis.help;
+        group.append(option);
+      });
+      select.append(group);
+      const genes = document.createElement('optgroup');
+      genes.label = '個別の遺伝子';
+      select.append(genes);
     }
+    const geneParent = select.lastElementChild && select.lastElementChild.tagName === 'OPTGROUP'
+      ? select.lastElementChild
+      : select;
     data.genes.forEach((gene, index) => {
       const option = document.createElement('option');
       option.value = String(index);
       option.textContent = gene.symbol;
-      select.append(option);
+      geneParent.append(option);
     });
   }
 
   // Keep the control showing what the view is actually sorted by.
-  const value = state.sortGene === SORT_MEAN ? SORT_MEAN : String(state.sortGene);
+  const value = isAggregate(state.sortGene) ? state.sortGene : String(state.sortGene);
   if (select.value !== value) select.value = value;
   if (select.selectedIndex < 0) {
     select.selectedIndex = 0;
-    state.sortGene = select.value === SORT_MEAN ? SORT_MEAN : Number(select.value);
+    state.sortGene = isAggregate(select.value) ? select.value : Number(select.value);
   }
+  const basis = SORT_BASES.find((b) => b.value === state.sortGene);
+  select.title = basis ? basis.help : '選んだ遺伝子の発現量で並べます。';
 
   const multi = data.genes.length > 1;
   const byValue = state.sort.startsWith('value');
@@ -479,15 +592,32 @@ function sortKeys(data) {
   const keys = new Array(data.cellLines.length).fill(null);
   if (!data.genes.length) return keys;
 
-  if (state.sortGene === SORT_MEAN) {
+  const basis = state.sortGene;
+  if (isAggregate(basis)) {
+    const maxima = scaleMaxima();
+    // A gene that is zero everywhere in the current selection says nothing
+    // about any cell line; including it would pin every minimum to 0.
+    let genes = [];
+    for (let r = 0; r < data.genes.length; r += 1) {
+      if (maxima.rows[r] > 0) genes.push(r);
+    }
+    if (!genes.length) genes = data.genes.map((_, r) => r);
+
     for (let c = 0; c < keys.length; c += 1) {
       let sum = 0;
       let seen = 0;
-      for (let r = 0; r < data.genes.length; r += 1) {
+      let lowest = Infinity;
+      for (let i = 0; i < genes.length; i += 1) {
+        const r = genes[i];
         const v = data.values[r][c];
-        if (v !== null && v !== undefined) { sum += v; seen += 1; }
+        if (v === null || v === undefined) continue;   // no data: not a zero
+        const x = basis === SORT_MEAN ? v : scalePosition(v, maxima.rows[r]);
+        sum += x;
+        seen += 1;
+        if (x < lowest) lowest = x;
       }
-      keys[c] = seen ? sum / seen : null;
+      if (!seen) { keys[c] = null; continue; }
+      keys[c] = basis === SORT_NORM_MIN ? lowest : sum / seen;
     }
     return keys;
   }
@@ -964,7 +1094,13 @@ function renderTooltip(tooltip, hit, event) {
   } else {
     const cell = data.cellLines[state.view[hit.row]];
     html = `<div class="t-title">${escapeHtml(cell.name)}</div>`;
-    if (cell.organ) html += `<div class="t-row">由来臓器: ${escapeHtml(cell.organ)}</div>`;
+    if (cell.organ) {
+      const organ = cell.organJa ? `${cell.organJa} (${cell.organ})` : cell.organ;
+      html += `<div class="t-row">由来臓器: ${escapeHtml(organ)}</div>`;
+      if (cell.organSource) {
+        html += `<div class="t-row" style="opacity:.7;font-size:11px">└ ${escapeHtml(cell.organSource)}</div>`;
+      }
+    }
     if (cell.disease) html += `<div class="t-row">疾患: ${escapeHtml(cell.disease)}</div>`;
     if (cell.species) html += `<div class="t-row">種: ${escapeHtml(cell.species)}</div>`;
     if (hit.kind === 'cell') {
@@ -1105,7 +1241,17 @@ function renderTable() {
     nameTd.append(link);
     tr.append(nameTd);
 
-    [cell.organ, cell.disease, cell.species].forEach((value) => {
+    const organTd = document.createElement('td');
+    organTd.className = 'left meta';
+    organTd.textContent = cell.organJa || cell.organ || '—';
+    if (cell.organ) {
+      organTd.title = cell.organSource
+        ? `${cell.organ}\n判定根拠: ${cell.organSource}`
+        : cell.organ;
+    }
+    tr.append(organTd);
+
+    [cell.disease, cell.species].forEach((value) => {
       const td = document.createElement('td');
       td.className = 'left meta';
       td.textContent = value || '—';

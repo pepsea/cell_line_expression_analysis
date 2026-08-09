@@ -38,6 +38,9 @@ CREATE TABLE IF NOT EXISTS cell_lines (
     -- Upper-cased, punctuation stripped: lets "hek293" match "HEK 293".
     name_key       TEXT,
     organ          TEXT,   -- 由来臓器 (normalised, e.g. "Lung")
+    -- How `organ` was decided: metadata column, refined from disease text,
+    -- inferred from TCGA similarity, ... Lets a surprising organ be traced.
+    organ_source   TEXT,
     tissue         TEXT,   -- finer-grained origin as reported by the source file
     disease        TEXT,   -- e.g. "Lung adenocarcinoma"
     species        TEXT,   -- 種 (e.g. "Homo sapiens")

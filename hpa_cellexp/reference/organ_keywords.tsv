@@ -1,10 +1,21 @@
 # Free-text origin/disease -> canonical organ (由来臓器).
 #
-# Rows are evaluated top to bottom and the first case-insensitive substring hit
-# wins, so more specific patterns MUST come before the generic ones (e.g.
-# "bile duct" before "duct", "small intestine" before "intestine").
+# Rows are evaluated top to bottom and the FIRST case-insensitive substring hit
+# wins.  That makes ordering load-bearing, and the hazard is a short pattern
+# that happens to sit inside a longer term:
+#
+#   "renal"   inside "adRENAL"        -> adrenal must come first
+#   "thyroid" inside "paraTHYROID"    -> parathyroid must come first
+#   "bladder" inside "gallBLADDER"    -> gallbladder must come first
+#   "rectal"  inside "coloRECTAL"     -> colorectal must come first
+#   "bone"    inside "BONE marrow"    -> bone marrow must come first
+#
+# tests/test_pipeline.py pins every one of these; add a case there when you add
+# a pattern that could be swallowed by another.
+#
 # Used only as a fallback when the input files do not carry an explicit
-# organ/tissue column.
+# organ/tissue column, and to refine the broad categories listed in
+# reference.BROAD_ORGANS.
 pattern	organ
 # --- haematopoietic & lymphoid -------------------------------------------
 acute myeloid leukemia	Bone marrow
@@ -13,6 +24,7 @@ chronic myeloid leukemia	Bone marrow
 chronic myeloid leukaemia	Bone marrow
 myeloid leukemia	Bone marrow
 myeloid leukaemia	Bone marrow
+myelodysplastic	Bone marrow
 myeloma	Bone marrow
 erythroleukemia	Bone marrow
 erythroleukaemia	Bone marrow
@@ -22,6 +34,7 @@ lymphocytic leukemia	Lymphoid tissue
 lymphocytic leukaemia	Lymphoid tissue
 lymphoma	Lymphoid tissue
 lymphoid	Lymphoid tissue
+lymph node	Lymphoid tissue
 leukemia	Bone marrow
 leukaemia	Bone marrow
 bone marrow	Bone marrow
@@ -30,7 +43,6 @@ thymus	Thymus
 thymoma	Thymus
 spleen	Spleen
 tonsil	Lymphoid tissue
-lymph node	Lymphoid tissue
 # --- nervous system --------------------------------------------------------
 glioblastoma	Brain
 astrocytoma	Brain
@@ -45,18 +57,23 @@ cerebellum	Brain
 central nervous system	Brain
 peripheral nervous system	Peripheral nervous system
 # --- head, neck & sensory --------------------------------------------------
+# "parathyroid" MUST precede "thyroid".
+parathyroid	Parathyroid gland
+thyroid	Thyroid gland
 nasopharyn	Head and neck
 oropharyn	Head and neck
 hypopharyn	Head and neck
 laryn	Head and neck
 pharyn	Head and neck
 tongue	Head and neck
-oral	Head and neck
+oral cavity	Head and neck
+oral squamous	Head and neck
+gingiv	Head and neck
+buccal	Head and neck
 mouth	Head and neck
 salivary	Head and neck
+parotid	Head and neck
 head and neck	Head and neck
-thyroid	Thyroid gland
-parathyroid	Parathyroid gland
 uveal	Eye
 retina	Eye
 eye	Eye
@@ -77,12 +94,19 @@ small intestine	Small intestine
 appendix	Appendix
 caecum	Colon
 cecum	Colon
+colorectum	Colon
 colorectal	Colon
 colon	Colon
+sigmoid	Colon
+large intestine	Colon
+rectosigmoid	Rectum
 rectum	Rectum
 rectal	Rectum
+# Bare "intestine" only reaches here when nothing more specific matched.
+intestine	Intestine
 bile duct	Bile duct
 cholangio	Bile duct
+# "gallbladder" MUST precede the urinary "bladder".
 gallbladder	Gallbladder
 hepatocellular	Liver
 hepatoblastoma	Liver
@@ -90,6 +114,12 @@ hepatic	Liver
 liver	Liver
 pancrea	Pancreas
 peritoneum	Peritoneum
+# --- endocrine (adrenal before renal: "renal" sits inside "adrenal") -------
+adrenocortical	Adrenal gland
+adrenal	Adrenal gland
+pheochromocytoma	Adrenal gland
+paraganglioma	Adrenal gland
+pituitary	Pituitary gland
 # --- urinary ---------------------------------------------------------------
 renal	Kidney
 kidney	Kidney
@@ -98,17 +128,15 @@ urothelial	Urinary bladder
 bladder	Urinary bladder
 ureter	Urinary bladder
 urinary	Urinary bladder
-adrenal	Adrenal gland
-pheochromocytoma	Adrenal gland
-paraganglioma	Adrenal gland
 # --- reproductive ----------------------------------------------------------
 prostate	Prostate
+# Ovary before "germ cell": ovarian germ cell tumours are not testicular.
+ovary	Ovary
+ovarian	Ovary
 testis	Testis
 testicular	Testis
 seminoma	Testis
 germ cell	Testis
-ovary	Ovary
-ovarian	Ovary
 endometri	Endometrium
 cervix	Cervix
 cervical	Cervix
@@ -140,9 +168,9 @@ fibroblast	Connective tissue
 connective	Connective tissue
 # --- other -----------------------------------------------------------------
 endothelial	Vasculature
+vascular	Vasculature
 heart	Heart
 cardiac	Heart
-pituitary	Pituitary gland
 embryonic stem	Embryonic tissue
 induced pluripotent	Embryonic tissue
 embryo	Embryonic tissue

@@ -11,17 +11,21 @@
 # language that is not on screen).  Organs are therefore listed here in
 # anatomical order and both the heatmap grouping and the facet list follow it.
 # Anything not listed sorts after everything listed, by name.
-value	ja
+value	ja	search
 # --- haematopoietic & lymphoid --------------------------------------------
-Bone marrow	骨髄
+Bone marrow	骨髄	白血病 leukemia 骨髄腫 myeloma blood 血液
 Blood	血液
-Lymphoid tissue	リンパ組織
+Lymphoid tissue	リンパ組織	リンパ腫 lymphoma 白血病 leukemia リンパ球
 Thymus	胸腺
 Spleen	脾臓
 # --- nervous system & eye --------------------------------------------------
-Brain	脳
-Peripheral nervous system	末梢神経系
-Eye	眼
+# Third column = extra words that find this row in the facet list.  A
+# neuroblastoma line is filed under the peripheral nervous system, which is
+# correct but not where someone looking for 脳 thinks to look, so each finds
+# the other.  Search only - it does not change any classification.
+Brain	脳	神経 nervous CNS 中枢神経 glioma グリオーマ 神経芽腫 neuroblastoma 末梢神経系
+Peripheral nervous system	末梢神経系	神経 nervous 脳 brain 神経芽腫 neuroblastoma 交感神経 ganglia
+Eye	眼	目 眼球 retina 網膜
 # --- head, neck & endocrine ------------------------------------------------
 Head and neck	頭頸部
 Thyroid gland	甲状腺

@@ -26,6 +26,7 @@ __all__ = [
     "is_broad_organ",
     "labels_ja",
     "label_ja",
+    "search_terms",
     "display_rank",
     "natural_key",
     "tcga_organ_map",
@@ -43,6 +44,15 @@ __all__ = [
 DEFAULT_SPECIES = "Homo sapiens"
 
 _SPECIES_ALIASES = {
+    # Japanese spellings collapse too, so a source that writes ヒト does not
+    # create a second species facet alongside "Homo sapiens".
+    "ヒト": "Homo sapiens",
+    "ヒト由来": "Homo sapiens",
+    "人": "Homo sapiens",
+    "ホモサピエンス": "Homo sapiens",
+    "マウス": "Mus musculus",
+    "ラット": "Rattus norvegicus",
+    "イヌ": "Canis lupus familiaris",
     "human": "Homo sapiens",
     "homo sapiens": "Homo sapiens",
     "h. sapiens": "Homo sapiens",
@@ -128,6 +138,30 @@ def labels_ja() -> Dict[str, str]:
         if len(row) >= 2 and row[0] and row[1]:
             mapping[row[0].strip()] = row[1].strip()
     return mapping
+
+
+@lru_cache(maxsize=1)
+def _search_terms() -> Dict[str, str]:
+    """Optional third column of labels_ja.tsv: extra words that should find
+    this value in the facet list.
+
+    Lets a search for 脳 also surface 末梢神経系 - a neuroblastoma line is
+    filed under the peripheral nervous system, which is correct but not where
+    someone looking for "brain" thinks to look.  Search only; it never changes
+    how a cell line is classified.
+    """
+    rows = _read_tsv("labels_ja.tsv")
+    return {
+        row[0].strip(): row[2].strip()
+        for row in rows[1:]
+        if len(row) >= 3 and row[0] and row[2].strip()
+    }
+
+
+def search_terms(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    return _search_terms().get(value.strip())
 
 
 def label_ja(value: Optional[str]) -> Optional[str]:

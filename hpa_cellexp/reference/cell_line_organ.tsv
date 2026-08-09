@@ -65,6 +65,24 @@ prefix	OCI-LY	Lymphoid tissue
 # --- brain -----------------------------------------------------------------
 exact	A-172	Brain
 exact	T98G	Brain
+exact	U-87 MG	Brain
+exact	U-118 MG	Brain
+exact	U-138 MG	Brain
+exact	U-251 MG	Brain
+exact	U-343	Brain
+exact	U-373 MG	Brain
+exact	GOS-3	Brain
+exact	SF-126	Brain
+exact	SF-268	Brain
+exact	SF-295	Brain
+exact	SF-539	Brain
+exact	CAS-1	Brain
+exact	KNS-42	Brain
+exact	KS-1	Brain
+exact	YKG-1	Brain
+exact	D-341	Brain
+exact	ONS-76	Brain
+exact	UW228	Brain
 exact	LN-18	Brain
 exact	LN-229	Brain
 exact	DAOY	Brain
@@ -79,6 +97,13 @@ exact	SK-N-MC	Bone
 exact	SH-SY5Y	Peripheral nervous system
 exact	IMR-32	Peripheral nervous system
 exact	KELLY	Peripheral nervous system
+exact	SK-N-BE(2)	Peripheral nervous system
+exact	SK-N-DZ	Peripheral nervous system
+exact	SK-N-AS	Peripheral nervous system
+exact	SK-N-FI	Peripheral nervous system
+exact	NB-1	Peripheral nervous system
+exact	GI-ME-N	Peripheral nervous system
+exact	CHP-126	Peripheral nervous system
 exact	LAN-1	Peripheral nervous system
 exact	CHP-212	Peripheral nervous system
 exact	SIMA	Peripheral nervous system

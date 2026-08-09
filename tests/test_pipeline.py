@@ -584,6 +584,61 @@ class CuratedOrganTests(unittest.TestCase):
         for name in ("CACO-2", "MDA-MB-468"):
             self.assertIn("参考値", R.organ_from_cell_line_name(name)[1])
 
+    def test_the_common_glioma_and_neuroblastoma_lines_are_covered(self):
+        """These had no 由来臓器 at all, so they vanished from every organ
+        grouping - the report was "細胞がなくなる"."""
+        for name in ("U-87 MG", "U-138 MG", "U-251 MG", "u87mg", "SF-268", "KNS-42"):
+            with self.subTest(cell_line=name):
+                self.assertEqual(R.organ_from_cell_line_name(name)[0], "Brain")
+        for name in ("Kelly", "SK-N-BE(2)", "SK-N-DZ", "GI-ME-N"):
+            with self.subTest(cell_line=name):
+                self.assertEqual(
+                    R.organ_from_cell_line_name(name)[0], "Peripheral nervous system"
+                )
+
+
+class SpeciesTests(unittest.TestCase):
+    """Regression: the species facet listed ヒト and Homo sapiens separately."""
+
+    def test_japanese_spellings_collapse_to_the_scientific_name(self):
+        for value in ("ヒト", "ヒト由来", "人", "Human", "homo sapiens", "9606"):
+            with self.subTest(value=value):
+                self.assertEqual(R.normalise_species(value), "Homo sapiens")
+        self.assertEqual(R.normalise_species("マウス"), "Mus musculus")
+
+    def test_missing_species_falls_back_to_human(self):
+        self.assertEqual(R.normalise_species(None), R.DEFAULT_SPECIES)
+        self.assertEqual(R.normalise_species("  "), R.DEFAULT_SPECIES)
+
+
+class FacetSearchTermTests(unittest.TestCase):
+    """The optional third column of labels_ja.tsv: words that find a facet
+    value without changing how anything is classified."""
+
+    def test_the_two_nervous_systems_find_each_other(self):
+        self.assertIn("末梢神経系", R.search_terms("Brain"))
+        self.assertIn("脳", R.search_terms("Peripheral nervous system"))
+        self.assertIn("neuroblastoma", R.search_terms("Brain"))
+
+    def test_values_without_extra_terms_return_none(self):
+        self.assertIsNone(R.search_terms("Liver"))
+        self.assertIsNone(R.search_terms(None))
+
+    def test_search_terms_do_not_disturb_the_labels_or_the_order(self):
+        self.assertEqual(R.label_ja("Brain"), "脳")
+        self.assertLess(R.display_rank("Brain"), R.display_rank("Lung"))
+
+    def test_the_api_serves_them(self):
+        with tempfile.TemporaryDirectory() as d:
+            from hpa_cellexp.demo import build_demo_database
+            from hpa_cellexp.queries import Database
+
+            path = os.path.join(d, "demo.sqlite")
+            build_demo_database(path)
+            organs = {item["value"]: item for item in Database(path).facets()["organs"]}
+            self.assertIn("末梢神経系", organs["Brain"]["searchTerms"])
+            self.assertIsNone(organs["Liver"]["searchTerms"])
+
 
 class OrganCoverageTests(unittest.TestCase):
     """Filling in 由来臓器 when the metadata does not supply it."""
@@ -1046,6 +1101,19 @@ class CliTests(unittest.TestCase):
         from hpa_cellexp.config import DEFAULT_DB_PATH
 
         self.assertTrue(DEFAULT_DB_PATH.endswith(".sqlite"))
+
+    def test_database_may_be_given_after_the_subcommand(self):
+        """`demo --database X` used to die with "unrecognized arguments",
+        which reads as if the option did not exist."""
+        from hpa_cellexp.__main__ import build_parser
+
+        parser = build_parser()
+        self.assertEqual(parser.parse_args(["demo", "--database", "/tmp/x"]).database, "/tmp/x")
+        self.assertEqual(parser.parse_args(["--database", "/tmp/x", "demo"]).database, "/tmp/x")
+        # No value anywhere still leaves the default in place.
+        from hpa_cellexp.config import DEFAULT_DB_PATH
+
+        self.assertEqual(parser.parse_args(["demo"]).database, DEFAULT_DB_PATH)
 
     def test_serve_reports_missing_database(self):
         with tempfile.TemporaryDirectory() as d:

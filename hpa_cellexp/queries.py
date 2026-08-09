@@ -9,7 +9,8 @@ import threading
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .config import SCHEMA_VERSION
-from .reference import cellosaurus_url, display_rank, label_ja, name_key, natural_key
+from .reference import (cellosaurus_url, display_rank, label_ja, name_key,
+                        natural_key, search_terms)
 
 __all__ = ["Database", "DatabaseMissing", "SchemaOutdated", "UNASSIGNED_ORGAN"]
 
@@ -132,6 +133,7 @@ class Database:
                     "value": r["value"],
                     "count": r["n"],
                     "labelJa": label_ja(r["value"]),
+                    "searchTerms": search_terms(r["value"]),
                     "rank": display_rank(r["value"]),
                 }
                 for r in rows

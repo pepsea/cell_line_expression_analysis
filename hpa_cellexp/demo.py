@@ -54,6 +54,10 @@ _CELL_LINES: List[Tuple[str, str, str, Optional[str]]] = [
     ("JURKAT", "Lymphoid tissue", "T-cell leukemia", "CVCL_0065"),
     ("K-562", "Bone marrow", "Chronic myeloid leukemia", "CVCL_0004"),
     ("KARPAS-707", "Bone marrow", "Multiple myeloma", None),
+    # A neuroblastoma line: filed under the peripheral nervous system, which is
+    # correct, but people look for it under 脳.  Present so the facet search
+    # terms that bridge the two are exercised against real UI.
+    ("Kelly", "Peripheral nervous system", "Neuroblastoma", "CVCL_2092"),
     ("LNCAP", "Prostate", "Prostate carcinoma", "CVCL_0395"),
     ("MCF7", "Breast", "Breast adenocarcinoma", "CVCL_0031"),
     ("MDA-MB-231", "Breast", "Breast adenocarcinoma", "CVCL_0062"),

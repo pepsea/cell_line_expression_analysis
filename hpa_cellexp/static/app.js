@@ -152,7 +152,10 @@ async function init() {
   buildSourcePanel(meta);
 
   buildMetricRadios(meta.availableMetrics);
-  buildFacet('speciesList', meta.facets.species, 'species', { preselectAll: true });
+  buildFacet('speciesList', meta.facets.species, 'species', {
+    preselectAll: true,
+    englishOnly: true,
+  });
   buildFacet('organList', meta.facets.organs, 'organs');
   buildFacet('diseaseList', meta.facets.diseases, 'diseases');
 
@@ -285,12 +288,14 @@ function buildFacet(containerId, values, key, options = {}) {
     container.innerHTML = '<p class="hint" style="padding:6px">該当する情報がありません</p>';
     return;
   }
-  values.forEach(({ value, count, labelJa }) => {
+  values.forEach(({ value, count, labelJa, searchTerms }) => {
     const item = document.createElement('label');
     item.className = 'facet-item';
     // Searchable in either language: the English value is the filter key, the
-    // Japanese label is what most users here will actually type.
-    item.dataset.value = [value, labelJa].filter(Boolean).join(' ').toLowerCase();
+    // Japanese label is what most users here will actually type.  searchTerms
+    // adds related words that are not on screen - typing 脳 has to surface
+    // 末梢神経系 too, because that is where a neuroblastoma line is filed.
+    item.dataset.value = [value, labelJa, searchTerms].filter(Boolean).join(' ').toLowerCase();
 
     const input = document.createElement('input');
     input.type = 'checkbox';
@@ -312,7 +317,11 @@ function buildFacet(containerId, values, key, options = {}) {
     // Sentinel values (e.g. the "unassigned organ" bucket) have no real name
     // to show alongside the label.
     const sentinel = value.startsWith('__');
-    if (labelJa && !sentinel) {
+    if (options.englishOnly && !sentinel) {
+      // Species: the scientific name is the name.  Showing "ヒト Homo sapiens"
+      // read as two separate entries for the same species.
+      name.textContent = value;
+    } else if (labelJa && !sentinel) {
       name.textContent = labelJa;
       const original = document.createElement('span');
       original.className = 'name-en';
@@ -731,8 +740,30 @@ const HM = {
 
 const ORGAN_COL_WIDTH = 104;
 
-// Share of the width beside the gutter that the gene columns spread over.
+// Share of the width beside the gutter that the gene columns spread over
+// while they still fit in it.  Beyond that the sheet widens instead.
 const PLOT_WIDTH_FRACTION = 1 / 2;
+
+// The minimum unit of width for one gene column, and the maximum.  A column
+// is never squeezed below MIN_COL_WIDTH: once the genes stop fitting, the
+// heatmap grows sideways (first into the rest of the row, then past it with a
+// horizontal scrollbar) rather than compressing into an unreadable strip.
+const MIN_COL_WIDTH = 44;
+const MAX_COL_WIDTH = 132;
+
+/** Width of one gene column for `cols` genes in `available` pixels.
+ *
+ *  Kept as a plain function so the browser tests can exercise the three
+ *  regimes directly: compact block, full width, then scrolling.
+ */
+function geneColumnWidth(available, cols) {
+  if (cols <= 0) return MIN_COL_WIDTH;
+  const compact = Math.floor((available * PLOT_WIDTH_FRACTION) / cols);
+  if (compact >= MIN_COL_WIDTH) return Math.min(MAX_COL_WIDTH, compact);
+  // Too many genes for the half-width block: spend the rest of the row before
+  // giving up and scrolling at the minimum unit.
+  return Math.max(MIN_COL_WIDTH, Math.min(MAX_COL_WIDTH, Math.floor(available / cols)));
+}
 
 /** Row and global maxima, memoised - paint() runs on every mousemove and
  *  scanning 200 x 1,200 values each time would make hovering feel sticky. */
@@ -797,12 +828,11 @@ function renderHeatmap() {
   // One readable line per cell line; grow the rows when there are only a few.
   HM.ch = Math.max(16, Math.min(30, Math.floor((maxHeight - 46) / rows)));
 
-  // Only spread the gene columns across PLOT_WIDTH_FRACTION of the space next
-  // to the gutter, so a handful of genes gives a compact block rather than a
-  // few enormously wide columns.  With many genes the per-column minimum wins
-  // and the sheet scrolls horizontally as before.
+  // A handful of genes gives a compact block (half the space next to the
+  // gutter) rather than a few enormously wide columns; as genes are added the
+  // sheet widens by MIN_COL_WIDTH per column instead of squeezing them.
   const available = Math.max(viewport.clientWidth - HM.gutter - 2, 160);
-  HM.cw = Math.max(26, Math.min(132, Math.floor((available * PLOT_WIDTH_FRACTION) / cols)));
+  HM.cw = geneColumnWidth(available, cols);
   // Gene symbols are short; keep them upright while the columns are wide
   // enough, and only fall back to rotated labels when they are not.
   HM.rotated = HM.cw < 56;

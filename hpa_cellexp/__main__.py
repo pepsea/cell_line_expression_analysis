@@ -169,6 +169,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
+    def accept_database_after_the_subcommand(subparser: argparse.ArgumentParser) -> None:
+        """Let --database appear on either side of the subcommand.
+
+        argparse binds an option to the parser that declares it, so a global
+        --database placed after the subcommand fails with "unrecognized
+        arguments" - which reads like the option does not exist at all.
+        SUPPRESS keeps the subparser from overwriting a value given globally.
+        """
+        subparser.add_argument("--database", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+
     build = sub.add_parser("build", help="build the database from HPA download files")
     build.add_argument(
         "--expression",
@@ -199,14 +209,17 @@ def build_parser() -> argparse.ArgumentParser:
                        help="exact header holding the organ of origin (由来臓器)")
     build.add_argument("--tissue-column", metavar="HEADER", help="exact header holding the tissue")
     build.add_argument("--disease-column", metavar="HEADER", help="exact header holding the disease")
+    accept_database_after_the_subcommand(build)
     build.set_defaults(func=_cmd_build)
 
     inspect = sub.add_parser("inspect", help="print the header and first rows of input files")
     inspect.add_argument("files", nargs="+")
     inspect.add_argument("--rows", type=int, default=3)
+    accept_database_after_the_subcommand(inspect)
     inspect.set_defaults(func=_cmd_inspect)
 
     demo = sub.add_parser("demo", help="build a small synthetic database for UI testing")
+    accept_database_after_the_subcommand(demo)
     demo.set_defaults(func=_cmd_demo)
 
     organs = sub.add_parser(
@@ -214,6 +227,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     organs.add_argument("--grep", help="only cell lines whose name matches (punctuation-insensitive)")
     organs.add_argument("--organ", help="only cell lines assigned to this organ, e.g. Colon")
+    accept_database_after_the_subcommand(organs)
     organs.set_defaults(func=_cmd_organs)
 
     serve = sub.add_parser("serve", help="run the web server")
@@ -238,6 +252,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="worker processes (default: %(default)s). The database is opened "
              "read-only, so workers scale reads safely.",
     )
+    accept_database_after_the_subcommand(serve)
     serve.set_defaults(func=_cmd_serve)
 
     return parser

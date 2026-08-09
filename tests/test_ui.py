@@ -364,6 +364,62 @@ class UiTests(unittest.TestCase):
         self.page.wait_for_timeout(1500)
         self.assertEqual(self.visible_names(99), ["HEP G2"])
 
+    def test_searching_the_brain_also_surfaces_the_peripheral_nervous_system(self):
+        """Kelly is a neuroblastoma line, so it is filed under the peripheral
+        nervous system - correct, but someone looking for 脳 concluded the cell
+        line had disappeared.  Each nervous-system organ finds the other."""
+        self.run_genes("GAPDH")
+        self.page.fill("#organSearch", "脳")
+        self.page.wait_for_timeout(300)
+        shown = self.page.eval_on_selector_all(
+            "#organList .facet-item",
+            "els => els.filter(e => e.style.display !== 'none')"
+            "        .map(e => e.querySelector('input').value)",
+        )
+        self.assertIn("Brain", shown)
+        self.assertIn("Peripheral nervous system", shown)
+
+        self.page.eval_on_selector_all(
+            "#organList .facet-item",
+            "els => els.filter(e => e.style.display !== 'none')"
+            "        .forEach(e => e.querySelector('input').click())",
+        )
+        self.page.wait_for_timeout(1500)
+        self.assertIn("Kelly", self.visible_names(99))
+
+    def test_species_facet_shows_one_entry_per_species(self):
+        """Regression: the facet rendered "ヒト Homo sapiens", which reads as
+        two separate species for what is one."""
+        items = self.page.eval_on_selector_all(
+            "#speciesList .facet-item .name", "els => els.map(e => e.textContent.trim())"
+        )
+        self.assertEqual(items, ["Homo sapiens"])
+        # ヒト still finds it - the label is only hidden, not dropped.
+        searchable = self.page.eval_on_selector(
+            "#speciesList .facet-item", "e => e.dataset.value"
+        )
+        self.assertIn("ヒト", searchable)
+        self.assertIn("homo sapiens", searchable)
+
+    def test_heatmap_widens_as_genes_are_added(self):
+        """More genes must widen the sheet, not squeeze the columns: a column
+        never goes below the minimum unit."""
+        widths = self.page.evaluate(
+            "() => [1, 3, 8, 20, 60].map(n => geneColumnWidth(900, n))"
+        )
+        self.assertTrue(all(w >= 44 for w in widths), widths)
+        self.assertEqual(widths[-1], 44, "the minimum unit is the floor")
+        self.assertTrue(
+            all(a >= b for a, b in zip(widths, widths[1:])),
+            "columns must not grow as genes are added: {}".format(widths),
+        )
+
+        self.run_genes("ALB, KLK3")
+        two = self.page.eval_on_selector("#hmSizer", "e => parseFloat(e.style.width)")
+        self.run_genes("ALB, KLK3, PTPRC, GAPDH, VIM, EGFR, MKI67, CD19")
+        eight = self.page.eval_on_selector("#hmSizer", "e => parseFloat(e.style.width)")
+        self.assertGreater(eight, two, "eight genes must be wider than two")
+
     def test_dataset_chip_reveals_the_source_files(self):
         chip = self.page.locator("#datasetChip")
         panel = self.page.locator("#sourcePanel")
@@ -392,7 +448,10 @@ class UiTests(unittest.TestCase):
             "() => ({rows: state.view.length, genes: state.result.genes.length})"
         )
         self.assertEqual(geometry["genes"], 3)
-        self.assertEqual(geometry["rows"], 50)
+        total = self.page.evaluate(
+            "async () => (await (await fetch('/api/meta')).json()).cellLineCount"
+        )
+        self.assertEqual(geometry["rows"], total)
         content = self.page.eval_on_selector(
             "#hmSizer", "e => ({w: parseFloat(e.style.width), h: parseFloat(e.style.height)})"
         )

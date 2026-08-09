@@ -1036,6 +1036,20 @@ function paint(ctx, vw, vh) {
     ctx.strokeStyle = grid;
     ctx.lineWidth = 1;
 
+    // Alternating tint behind each group, so a label's block of rows is
+    // something you can see rather than infer from the nearest text.  A
+    // centred label beside 40 rows is genuinely ambiguous otherwise - it was
+    // read as belonging to the rows above it.
+    organGroups().forEach((group, index) => {
+      if (index % 2 === 0) return;
+      if (group.end < firstRow || group.start > lastRow) return;
+      const top = Math.max(rowY(group.start), HM.band);
+      const bottom = Math.min(rowY(group.end + 1), vh);
+      if (bottom <= top) return;
+      ctx.fillStyle = surface;
+      ctx.fillRect(0, top, HM.organCol, bottom - top);
+    });
+
     organGroups().forEach((group) => {
       if (group.end < firstRow || group.start > lastRow) return;
       const top = rowY(group.start);

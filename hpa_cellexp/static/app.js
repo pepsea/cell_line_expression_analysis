@@ -520,9 +520,14 @@ function renderGeneChipsWithMatches(data) {
  * absolute values - add GAPDH to the list and the ranking becomes a GAPDH
  * ranking.  The other two bases avoid that in different ways:
  *
- *   log-mean  : mean of log10(1+value), i.e. the geometric mean of 1+value.
- *               Magnitude still counts, but it counts in orders of magnitude,
- *               so one huge gene no longer decides the ranking on its own.
+ *   share-mean: for each gene, the cell line's share of that gene's total over
+ *               the cell lines on screen; averaged over the genes.  Every gene
+ *               contributes exactly 1.0 spread across the cell lines, so a
+ *               high-abundance gene carries no more weight than a faint one.
+ *               (Two other readings of "share" are degenerate and deliberately
+ *               not used: a cell line's share across the selected genes always
+ *               averages to 1/N, and a share of the transcriptome - nTPM/1e6 -
+ *               reproduces the arithmetic mean exactly.)
  *   norm-min  : the SMALLEST per-gene normalised value - the bottleneck gene,
  *               so a cell line only ranks high when EVERY gene is high.
  *               This is the one to use for "全遺伝子が満遍なく発現".
@@ -531,17 +536,18 @@ function renderGeneChipsWithMatches(data) {
  * are skipped, otherwise they would drag every cell line's minimum to 0.
  */
 const SORT_MEAN = 'mean';
-const SORT_LOG_MEAN = 'log-mean';
+const SORT_SHARE_MEAN = 'share-mean';
 const SORT_NORM_MIN = 'norm-min';
 
 const SORT_BASES = [
   { value: SORT_NORM_MIN,
     label: '全遺伝子が満遍なく（最小値）',
     help: '遺伝子ごとに0-1へ正規化し、その最小値で並べます。最も弱い遺伝子でも高い細胞株が上位に来ます。' },
-  { value: SORT_LOG_MEAN,
-    label: '全遺伝子の対数平均',
-    help: 'log10(1+発現量) の平均（= 1+発現量 の幾何平均）。'
-        + '桁で効くので、高発現遺伝子に算術平均ほど引きずられません。' },
+  { value: SORT_SHARE_MEAN,
+    label: '発現量割合の平均',
+    help: '遺伝子ごとに「表示中の細胞株の合計に対するその細胞株の割合」を求め、'
+        + '遺伝子間で平均します。各遺伝子の合計が 1 になるため、'
+        + '高発現遺伝子でも低発現遺伝子でも同じ重みで効きます。' },
   { value: SORT_MEAN,
     label: '全遺伝子の平均（絶対値）',
     help: '生の発現量の算術平均。GAPDH のような高発現遺伝子に強く影響されます。' },
@@ -633,8 +639,10 @@ function sortKeys(data) {
         if (v === null || v === undefined) continue;   // no data: not a zero
         let x;
         if (basis === SORT_MEAN) x = v;
-        else if (basis === SORT_LOG_MEAN) x = Math.log10(1 + v);
-        else x = scalePosition(v, maxima.rows[r]);   // per-gene 0-1, for the minimum
+        else if (basis === SORT_SHARE_MEAN) {
+          const total = maxima.totals[r];
+          x = total > 0 ? v / total : 0;
+        } else x = scalePosition(v, maxima.rows[r]);   // per-gene 0-1, for the minimum
         sum += x;
         seen += 1;
         if (x < lowest) lowest = x;
@@ -730,15 +738,19 @@ const PLOT_WIDTH_FRACTION = 1 / 2;
 function scaleMaxima() {
   if (state.maxima) return state.maxima;
   const data = state.result;
-  const globalMax = { global: 0, rows: [] };
+  const globalMax = { global: 0, rows: [], totals: [] };
   data.genes.forEach((_, r) => {
     let rowMax = 0;
+    let rowTotal = 0;
     const row = data.values[r];
     for (let c = 0; c < row.length; c += 1) {
       const v = row[c];
-      if (v !== null && v > rowMax) rowMax = v;
+      if (v === null || v === undefined) continue;
+      if (v > rowMax) rowMax = v;
+      rowTotal += v;
     }
     globalMax.rows.push(rowMax);
+    globalMax.totals.push(rowTotal);
     if (rowMax > globalMax.global) globalMax.global = rowMax;
   });
   state.maxima = globalMax;

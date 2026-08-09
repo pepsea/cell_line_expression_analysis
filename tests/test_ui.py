@@ -203,11 +203,15 @@ class UiTests(unittest.TestCase):
     # assertions do not just re-run the implementation being tested.
     _KEYS_JS = """(basis) => {
         const d = state.result;
-        const maxima = [];
+        const maxima = [], totals = [];
         for (let r = 0; r < d.genes.length; r += 1) {
-          let m = 0;
-          for (const v of d.values[r]) if (v !== null && v > m) m = v;
-          maxima.push(m);
+          let m = 0, t = 0;
+          for (const v of d.values[r]) {
+            if (v === null || v === undefined) continue;
+            if (v > m) m = v;
+            t += v;
+          }
+          maxima.push(m); totals.push(t);
         }
         const usable = maxima.map((m, r) => (m > 0 ? r : -1)).filter((r) => r >= 0);
         const norm = (v, m) => (m > 0 ? Math.log10(1 + v) / Math.log10(1 + m) : 0);
@@ -218,7 +222,7 @@ class UiTests(unittest.TestCase):
             if (v === null || v === undefined) continue;
             let x;
             if (basis === 'mean') x = v;
-            else if (basis === 'log-mean') x = Math.log10(1 + v);
+            else if (basis === 'share-mean') x = totals[r] > 0 ? v / totals[r] : 0;
             else x = norm(v, maxima[r]);
             sum += x; n += 1; if (x < lo) lo = x;
           }
@@ -241,11 +245,11 @@ class UiTests(unittest.TestCase):
         self.page.select_option("#sortSelect", "value-desc")
         self.page.wait_for_timeout(300)
         values = self.page.eval_on_selector_all("#sortGene option", "e => e.map(o => o.value)")
-        for basis in ("norm-min", "log-mean", "mean"):
+        for basis in ("norm-min", "share-mean", "mean"):
             self.assertIn(basis, values)
 
-    def test_log_mean_is_not_dominated_by_the_largest_gene(self):
-        """A plain mean ranks by GAPDH alone; the log mean must not."""
+    def test_share_mean_is_not_dominated_by_the_largest_gene(self):
+        """A plain mean ranks by GAPDH alone; the share mean must not."""
         self.run_genes("GAPDH, ALB, KLK3, PTPRC, MITF, GFAP")
         self.page.select_option("#sortSelect", "value-desc")
         self.page.wait_for_timeout(300)
@@ -255,30 +259,41 @@ class UiTests(unittest.TestCase):
         self._ordered_desc("mean")
         by_mean = self.visible_names(6)
 
-        self.page.select_option("#sortGene", "log-mean")
+        self.page.select_option("#sortGene", "share-mean")
         self.page.wait_for_timeout(400)
-        self._ordered_desc("log-mean")
+        self._ordered_desc("share-mean")
         self.assertNotEqual(by_mean, self.visible_names(6))
 
-    def test_log_mean_replaced_the_normalised_mean(self):
+    def test_share_mean_replaced_the_earlier_aggregate(self):
         self.run_genes("GAPDH, ALB, PTPRC")
         self.page.select_option("#sortSelect", "value-desc")
         self.page.wait_for_timeout(300)
         values = self.page.eval_on_selector_all("#sortGene option", "e => e.map(o => o.value)")
-        self.assertIn("log-mean", values)
-        self.assertNotIn("norm-mean", values)
+        self.assertIn("share-mean", values)
+        for gone in ("log-mean", "norm-mean"):
+            self.assertNotIn(gone, values)
         labels = self.page.eval_on_selector_all("#sortGene option", "e => e.map(o => o.textContent)")
-        self.assertIn("全遺伝子の対数平均", labels)
+        self.assertIn("発現量割合の平均", labels)
 
-    def test_log_mean_is_the_geometric_mean_of_one_plus_value(self):
-        """log10(1+v) averaged - so magnitude counts in orders, not in units."""
+    def test_share_mean_gives_every_gene_the_same_total_weight(self):
+        """Each gene's shares sum to 1 across the cell lines, so the ranking
+        cannot be carried by whichever gene has the largest absolute values."""
         self.run_genes("GAPDH, ALB, KLK3, PTPRC, MITF")
         self.page.select_option("#sortSelect", "value-desc")
         self.page.wait_for_timeout(300)
-        self.page.select_option("#sortGene", "log-mean")
+        self.page.select_option("#sortGene", "share-mean")
         self.page.wait_for_timeout(400)
-        keys = self._ordered_desc("log-mean")
-        self.assertTrue(all(k is None or k >= 0 for k in keys))
+        keys = self._ordered_desc("share-mean")
+
+        # Every key is a mean of shares, so 0..1, and they sum to ~1 overall.
+        self.assertTrue(all(0 <= k <= 1 for k in keys if k is not None))
+        self.assertAlmostEqual(sum(k for k in keys if k is not None), 1.0, places=6)
+
+        # And it must not simply reproduce the arithmetic mean's order.
+        by_share = self.visible_names(6)
+        self.page.select_option("#sortGene", "mean")
+        self.page.wait_for_timeout(400)
+        self.assertNotEqual(by_share, self.visible_names(6))
 
     def test_min_basis_puts_evenly_expressed_cell_lines_first(self):
         """The bottleneck basis: a cell line only ranks high when its weakest

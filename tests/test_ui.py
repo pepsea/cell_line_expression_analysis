@@ -447,68 +447,49 @@ class UiTests(unittest.TestCase):
         )
         self.assertEqual(offending, [], "label drawn outside its own group")
 
-    def test_organ_groups_are_held_apart_by_real_space(self):
-        """The boundaries were invisible, so the sheet read as one list and the
-        labels looked attached to the wrong rows.  Blank space between blocks
-        is the separator; rows inside a block stay at a constant pitch."""
+    def test_every_organ_change_gets_a_boundary_rule(self):
+        """The boundaries were invisible, so the sheet read as one continuous
+        list and the labels looked attached to whatever rows were nearest.
+        One rule per organ change, and none inside an organ."""
         self.run_genes("GAPDH, EGFR")
         self.page.select_option("#sortSelect", "organ")
         self.page.wait_for_timeout(600)
 
-        steps = self.page.evaluate(
-            """() => {
-              const g = organGroups();
-              const boundary = new Set(g.filter(x => x.start > 0).map(x => x.start));
-              const within = [], across = [];
-              for (let r = 1; r < state.view.length; r += 1) {
-                const step = HM.offsets[r] - HM.offsets[r - 1];
-                (boundary.has(r) ? across : within).push(step);
-              }
-              return {within, across, ch: HM.ch, gap: GROUP_GAP};
-            }"""
+        result = self.page.evaluate(
+            """() => ({
+              rules: groupBoundaryRows(),
+              starts: organGroups().filter(g => g.start > 0).map(g => g.start),
+              width: GROUP_RULE_WIDTH,
+              organs: organGroups().length,
+            })"""
         )
-        self.assertTrue(steps["across"], "the demo data must have several organs")
-        self.assertEqual(set(steps["within"]), {steps["ch"]})
-        self.assertEqual(set(steps["across"]), {steps["ch"] + steps["gap"]})
+        self.assertGreater(result["organs"], 3, "the demo data must span several organs")
+        self.assertEqual(result["rules"], result["starts"])
+        self.assertGreaterEqual(result["width"], 2, "a hairline was missed at a 16px pitch")
 
-    def test_a_row_still_knows_which_cell_line_it_is_after_the_gaps(self):
-        """Rows are no longer at a constant pitch, so anything mapping pixels
-        back to a row has to go through the offsets - a stale division would
-        put the tooltip and the Cellosaurus link on the wrong cell line."""
+    def test_rows_keep_a_constant_pitch(self):
+        """Rules divide the list without moving anything, so hit testing stays
+        a plain division - a row must still map back to its own cell line."""
         self.run_genes("GAPDH, EGFR")
         self.page.select_option("#sortSelect", "organ")
         self.page.wait_for_timeout(600)
-
-        mismatched = self.page.evaluate(
+        geometry = self.page.evaluate(
             """() => {
-              const bad = [];
-              for (let r = 0; r < state.view.length; r += 1) {
-                const middle = HM.offsets[r] + HM.ch / 2;
-                if (rowContaining(middle) !== r) bad.push(r);
-              }
-              // A point inside a gap belongs to no row.
-              const g = organGroups().find(x => x.start > 0);
-              const inGap = g ? rowContaining(HM.offsets[g.start] - 2) : -1;
-              return {bad, inGap};
+              const v = document.getElementById('hmViewport');
+              const rows = state.view.length;
+              return {
+                sheet: parseFloat(document.getElementById('hmSizer').style.height),
+                expected: HM.band + rows * HM.ch,
+              };
             }"""
         )
-        self.assertEqual(mismatched["bad"], [])
-        self.assertEqual(mismatched["inGap"], -1)
+        self.assertEqual(geometry["sheet"], geometry["expected"])
 
-    def test_ungrouped_sorts_have_no_gaps(self):
+    def test_ungrouped_sorts_have_no_boundary_rules(self):
         self.run_genes("GAPDH, EGFR")
         self.page.select_option("#sortSelect", "name")
         self.page.wait_for_timeout(600)
-        steps = self.page.evaluate(
-            """() => {
-              const s = new Set();
-              for (let r = 1; r < state.view.length; r += 1) {
-                s.add(HM.offsets[r] - HM.offsets[r - 1]);
-              }
-              return [...s];
-            }"""
-        )
-        self.assertEqual(steps, [self.page.evaluate("() => HM.ch")])
+        self.assertEqual(self.page.evaluate("() => groupBoundaryRows()"), [])
 
     def test_no_cell_line_is_lost_when_grouping_by_organ(self):
         """The heart of "由来臓器で並べると細胞が消える": every cell line the

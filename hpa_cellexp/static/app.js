@@ -11,7 +11,7 @@
 // A stale Docker image or a cached script is otherwise invisible: the page
 // looks fine and simply behaves like an older build, which is impossible to
 // tell apart from a bug.  Keep in step with hpa_cellexp/__init__.py.
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.5.0';
 
 // ---------------------------------------------------------------------------
 // state
@@ -774,7 +774,6 @@ const HM = {
   cw: 64,        // width of one gene column
   ch: 20,        // height of one cell line row
   rotated: false,
-  offsets: [0],  // content-space top of each row; organ gaps make it uneven
 };
 
 const ORGAN_COL_WIDTH = 104;
@@ -869,55 +868,16 @@ function showOrganColumn() {
   return state.sort === 'organ' && organGroups().some((g) => g.organ);
 }
 
-// Blank space between organ blocks.  A rule between 16px rows is easy to miss
-// - it was missed, and the sheet got read as one continuous list with the
-// labels floating beside the wrong rows.  Whitespace is the one separator that
-// cannot be mistaken for data, so the groups are held apart instead of ruled.
-const GROUP_GAP = 10;
+// Thickness of the rule drawn at every organ boundary.  It has to be heavier
+// than a gridline: the boundaries were invisible at a 16px row pitch and the
+// sheet got read as one continuous list, with the labels looking as though
+// they belonged to whichever rows happened to be next to them.
+const GROUP_RULE_WIDTH = 2;
 
-/** Content-space top edge of every row, plus a terminator at [rows].
- *
- *  Rows are no longer at a constant pitch: each organ boundary inserts
- *  GROUP_GAP.  Everything that maps between rows and pixels - painting, the
- *  visible-row window, hit testing, the sheet's height - goes through this.
- */
-function computeRowOffsets() {
-  const rows = state.view.length;
-  const gap = showOrganColumn() ? GROUP_GAP : 0;
-  const starts = new Set();
-  if (gap) organGroups().forEach((g) => { if (g.start > 0) starts.add(g.start); });
-
-  const offsets = new Array(rows + 1);
-  let y = 0;
-  for (let r = 0; r < rows; r += 1) {
-    if (starts.has(r)) y += gap;
-    offsets[r] = y;
-    y += HM.ch;
-  }
-  offsets[rows] = y;
-  HM.offsets = offsets;
-  return offsets;
-}
-
-/** First row whose bottom edge is below `contentY`. */
-function rowAtOrAfter(contentY) {
-  const offsets = HM.offsets;
-  let lo = 0;
-  let hi = offsets.length - 2;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (offsets[mid] + HM.ch > contentY) hi = mid;
-    else lo = mid + 1;
-  }
-  return lo;
-}
-
-/** Row containing `contentY`, or -1 when it lands in the gap between groups. */
-function rowContaining(contentY) {
-  if (contentY < 0) return -1;
-  const row = rowAtOrAfter(contentY);
-  const top = HM.offsets[row];
-  return contentY >= top && contentY < top + HM.ch ? row : -1;
+/** Rows that start a new organ, i.e. where a rule is drawn. */
+function groupBoundaryRows() {
+  if (!showOrganColumn()) return [];
+  return organGroups().filter((g) => g.start > 0).map((g) => g.start);
 }
 
 function renderHeatmap() {
@@ -951,8 +911,7 @@ function renderHeatmap() {
   HM.band = HM.rotated ? 116 : 46;
 
   const contentW = HM.gutter + cols * HM.cw;
-  // After HM.ch and the organ column are settled: the gaps depend on both.
-  const contentH = HM.band + computeRowOffsets()[rows];
+  const contentH = HM.band + rows * HM.ch;
   $('hmSizer').style.width = contentW + 'px';
   $('hmSizer').style.height = contentH + 'px';
 
@@ -996,13 +955,12 @@ function paint(ctx, vw, vh) {
 
   const dark = isDarkMode();
   const maxima = scaleMaxima();
-  const offsets = HM.offsets;
-  const firstRow = rowAtOrAfter(sy);
-  const lastRow = Math.min(rows - 1, rowAtOrAfter(sy + vh - HM.band));
+  const firstRow = Math.max(0, Math.floor(sy / HM.ch));
+  const lastRow = Math.min(rows - 1, Math.ceil((sy + vh - HM.band) / HM.ch));
   const firstCol = Math.max(0, Math.floor(sx / HM.cw));
   const lastCol = Math.min(cols - 1, Math.ceil((sx + vw - HM.gutter) / HM.cw));
 
-  const rowY = (r) => HM.band + offsets[r] - sy;
+  const rowY = (r) => HM.band + r * HM.ch - sy;
   const colX = (c) => HM.gutter + c * HM.cw - sx;
 
   // --- cells ---------------------------------------------------------------
@@ -1047,10 +1005,6 @@ function paint(ctx, vw, vh) {
     }
   }
 
-  // No rules between organ groups: computeRowOffsets() has already held them
-  // apart with GROUP_GAP of bare surface, which separates without adding ink
-  // that could be mistaken for data.
-
   // hover ring
   if (state.hover && state.hover.kind === 'cell') {
     const { row, col } = state.hover;
@@ -1075,9 +1029,10 @@ function paint(ctx, vw, vh) {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
 
-    // One tinted block per group, ending where the group ends.  The block is
-    // the boundary: the gap above and below it is bare surface, so a label can
-    // only ever belong to the rows it sits on.
+    // One tinted block per group, ending exactly where the group ends, so the
+    // rows a label covers are visible and not inferred from its position.
+    // The rule drawn across the sheet below is the boundary; this is what ties
+    // the label to the rows the rule encloses.
     organGroups().forEach((group) => {
       if (group.end < firstRow || group.start > lastRow) return;
       const top = rowY(group.start);
@@ -1121,6 +1076,30 @@ function paint(ctx, vw, vh) {
   ctx.lineTo(HM.gutter - 0.5, vh);
   ctx.stroke();
   ctx.restore();
+
+  // --- organ boundaries -------------------------------------------------------
+  // Drawn last of the body, in one pass across the FULL width: a rule that
+  // stops at the cell line names does not read as a division of the list, and
+  // one drawn earlier gets painted over by the gutter's own background.
+  // Heavier than a gridline on purpose - at a 16px row pitch a hairline was
+  // missed entirely, which is what made the grouping unreadable.
+  if (HM.organCol) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, HM.band, vw, vh - HM.band);
+    ctx.clip();
+    ctx.strokeStyle = muted;
+    ctx.lineWidth = GROUP_RULE_WIDTH;
+    ctx.beginPath();
+    groupBoundaryRows().forEach((start) => {
+      if (start < firstRow || start > lastRow + 1) return;
+      const y = rowY(start) - GROUP_RULE_WIDTH / 2;
+      ctx.moveTo(0, y);
+      ctx.lineTo(vw, y);
+    });
+    ctx.stroke();
+    ctx.restore();
+  }
 
   // --- top band: gene labels -------------------------------------------------
   ctx.save();
@@ -1238,9 +1217,7 @@ function hitTest(event) {
   const rect = viewport.getBoundingClientRect();
   const x = event.clientX - rect.left;
   const y = event.clientY - rect.top;
-  // Rows are not at a constant pitch once organ gaps are in play, and a
-  // pointer in a gap belongs to no row at all.
-  const row = rowContaining(y - HM.band + viewport.scrollTop);
+  const row = Math.floor((y - HM.band + viewport.scrollTop) / HM.ch);
   const col = Math.floor((x - HM.gutter + viewport.scrollLeft) / HM.cw);
   const inRows = row >= 0 && row < state.view.length;
   const inCols = col >= 0 && col < data.genes.length;

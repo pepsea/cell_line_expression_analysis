@@ -157,7 +157,10 @@ async function init() {
   $('tabHeatmap').addEventListener('click', () => setView('heatmap'));
   $('tabTable').addEventListener('click', () => setView('table'));
   $('sortSelect').addEventListener('change', (e) => { state.sort = e.target.value; applySort(); });
-  $('sortGene').addEventListener('change', (e) => { state.sortGene = Number(e.target.value); applySort(); });
+  $('sortGene').addEventListener('change', (e) => {
+    state.sortGene = e.target.value === SORT_MEAN ? SORT_MEAN : Number(e.target.value);
+    applySort();
+  });
   $('scaleSelect').addEventListener('change', (e) => { state.scale = e.target.value; renderHeatmap(); renderLegend(); });
   $('downloadButton').addEventListener('click', downloadTsv);
 
@@ -374,7 +377,8 @@ async function runAnalysis(options = {}) {
     state.result = data;
     state.maxima = null;
     state.groups = null;
-    if (!keepScroll) state.sortGene = 0;
+    // "mean" survives a re-run because it does not name a specific gene.
+    if (!keepScroll && state.sortGene !== SORT_MEAN) state.sortGene = 0;
     saveToHash();
     renderGeneChipsWithMatches(data);
     populateSortGene(data);
@@ -428,19 +432,69 @@ function renderGeneChipsWithMatches(data) {
   }
 }
 
+const SORT_MEAN = 'mean';
+
 function populateSortGene(data) {
   const select = $('sortGene');
-  select.innerHTML = '';
-  data.genes.forEach((gene, index) => {
-    const option = document.createElement('option');
-    option.value = String(index);
-    option.textContent = gene.symbol;
-    select.append(option);
-  });
+  const wanted = data.genes.map((g) => g.symbol).join('|');
+
+  // Only rebuild when the gene list actually changed.  Rebuilding on every
+  // sort reset the visible selection to the first option while state.sortGene
+  // still pointed elsewhere - after which re-picking that first gene fired no
+  // 'change' event at all, so it could never be chosen again.
+  if (select.dataset.genes !== wanted) {
+    select.dataset.genes = wanted;
+    select.innerHTML = '';
+    if (data.genes.length > 1) {
+      const mean = document.createElement('option');
+      mean.value = SORT_MEAN;
+      mean.textContent = '全遺伝子の平均';
+      select.append(mean);
+    }
+    data.genes.forEach((gene, index) => {
+      const option = document.createElement('option');
+      option.value = String(index);
+      option.textContent = gene.symbol;
+      select.append(option);
+    });
+  }
+
+  // Keep the control showing what the view is actually sorted by.
+  const value = state.sortGene === SORT_MEAN ? SORT_MEAN : String(state.sortGene);
+  if (select.value !== value) select.value = value;
+  if (select.selectedIndex < 0) {
+    select.selectedIndex = 0;
+    state.sortGene = select.value === SORT_MEAN ? SORT_MEAN : Number(select.value);
+  }
+
   const multi = data.genes.length > 1;
   const byValue = state.sort.startsWith('value');
   select.hidden = !(multi && byValue);
   $('sortGeneLabel').hidden = select.hidden;
+}
+
+/** Per-cell-line value the "expression" sorts order by: one gene, or the mean
+ *  across every gene in the result. */
+function sortKeys(data) {
+  const keys = new Array(data.cellLines.length).fill(null);
+  if (!data.genes.length) return keys;
+
+  if (state.sortGene === SORT_MEAN) {
+    for (let c = 0; c < keys.length; c += 1) {
+      let sum = 0;
+      let seen = 0;
+      for (let r = 0; r < data.genes.length; r += 1) {
+        const v = data.values[r][c];
+        if (v !== null && v !== undefined) { sum += v; seen += 1; }
+      }
+      keys[c] = seen ? sum / seen : null;
+    }
+    return keys;
+  }
+
+  const g = Math.min(Math.max(Number(state.sortGene) || 0, 0), data.genes.length - 1);
+  for (let c = 0; c < keys.length; c += 1) keys[c] = data.values[g][c];
+  return keys;
 }
 
 function applySort() {
@@ -448,7 +502,6 @@ function applySort() {
   if (!data) return;
   const n = data.cellLines.length;
   const order = Array.from({ length: n }, (_, i) => i);
-  const g = Math.min(state.sortGene, Math.max(data.genes.length - 1, 0));
 
   if (state.sort === 'name') {
     order.sort((a, b) => data.cellLines[a].name.localeCompare(data.cellLines[b].name));
@@ -460,8 +513,9 @@ function applySort() {
     });
   } else if (data.genes.length) {
     const sign = state.sort === 'value-desc' ? -1 : 1;
+    const keys = sortKeys(data);
     order.sort((a, b) => {
-      const va = data.values[g][a], vb = data.values[g][b];
+      const va = keys[a], vb = keys[b];
       // Missing values always sink to the bottom, in both directions.
       if (va === null && vb === null) return data.cellLines[a].name.localeCompare(data.cellLines[b].name);
       if (va === null) return 1;
@@ -511,6 +565,9 @@ const HM = {
 };
 
 const ORGAN_COL_WIDTH = 104;
+
+// Share of the width beside the gutter that the gene columns spread over.
+const PLOT_WIDTH_FRACTION = 2 / 3;
 
 /** Row and global maxima, memoised - paint() runs on every mousemove and
  *  scanning 200 x 1,200 values each time would make hovering feel sticky. */
@@ -571,8 +628,12 @@ function renderHeatmap() {
   // One readable line per cell line; grow the rows when there are only a few.
   HM.ch = Math.max(16, Math.min(30, Math.floor((maxHeight - 46) / rows)));
 
+  // Only spread the gene columns across PLOT_WIDTH_FRACTION of the space next
+  // to the gutter, so a handful of genes gives a compact block rather than a
+  // few enormously wide columns.  With many genes the per-column minimum wins
+  // and the sheet scrolls horizontally as before.
   const available = Math.max(viewport.clientWidth - HM.gutter - 2, 160);
-  HM.cw = Math.max(26, Math.min(132, Math.floor(available / cols)));
+  HM.cw = Math.max(26, Math.min(132, Math.floor((available * PLOT_WIDTH_FRACTION) / cols)));
   // Gene symbols are short; keep them upright while the columns are wide
   // enough, and only fall back to rotated labels when they are not.
   HM.rotated = HM.cw < 56;
@@ -1005,13 +1066,16 @@ function renderTable() {
     th.textContent = gene.symbol;
     th.title = `${gene.symbol} でソート（${data.metric}）`;
     th.addEventListener('click', () => {
+      // Compare against the PREVIOUS basis: assigning first made this test
+      // always true, so clicking a different gene flipped the direction
+      // instead of sorting that gene descending.
+      const sameGene = state.sortGene === index;
+      state.sort = (sameGene && state.sort === 'value-desc') ? 'value-asc' : 'value-desc';
       state.sortGene = index;
-      state.sort = state.sort === 'value-desc' && index === state.sortGene ? 'value-asc' : 'value-desc';
       $('sortSelect').value = state.sort;
-      $('sortGene').value = String(index);
       applySort();
     });
-    if (state.sort.startsWith('value') && state.sortGene === index) {
+    if (state.sort.startsWith('value') && state.sortGene === index) {  // eslint-disable-line
       const arrow = document.createElement('span');
       arrow.className = 'arrow';
       arrow.textContent = state.sort === 'value-desc' ? '▾' : '▴';

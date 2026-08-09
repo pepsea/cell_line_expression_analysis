@@ -527,10 +527,78 @@ class UiTests(unittest.TestCase):
         self.assertTrue(all("proteinatlas.org" in href for href in links), links)
 
         before = self.page.evaluate("() => state.sort")
-        self.page.click("#matrixTable thead th:nth-child(5)")
+        # 5 meta columns now precede the genes (the last is 類似がん種).
+        self.page.click("#matrixTable thead th:nth-child(6)")
         self.page.wait_for_timeout(400)
         self.assertNotEqual(self.page.evaluate("() => state.sort"), before)
         self.assertTrue(self.page.url.endswith("/") or "127.0.0.1" in self.page.url)
+
+    def test_the_tcga_similarity_is_actually_shown(self):
+        """It was computed and sent with every response, then dropped on the
+        floor - nothing in the UI ever read it."""
+        self.run_genes("GAPDH, ALB")
+        payload = self.page.evaluate(
+            """() => {
+              const byName = {};
+              state.result.cellLines.forEach(c => { byName[c.name] = c.tcga; });
+              return byName;
+            }"""
+        )
+        self.assertTrue(payload["HEP G2"], "no TCGA hits reached the client")
+        self.assertLessEqual(len(payload["HEP G2"]), 3)
+        self.assertEqual(payload["HEP G2"][0]["cancer"], "LIHC")
+        self.assertEqual(payload["HEP G2"][0]["nameJa"], "肝細胞がん")
+
+        # ...in the heatmap tooltip
+        row = self.page.evaluate(
+            """() => {
+              const i = state.view.findIndex(
+                v => state.result.cellLines[v].name === 'HEP G2');
+              const v = document.getElementById('hmViewport').getBoundingClientRect();
+              return {x: v.left + HM.gutter / 2, y: v.top + HM.band + i * HM.ch + HM.ch / 2};
+            }"""
+        )
+        self.page.mouse.move(row["x"], row["y"])
+        self.page.wait_for_timeout(300)
+        tooltip = self.page.inner_text("#hmTooltip")
+        self.assertIn("類似がん種", tooltip)
+        self.assertIn("LIHC", tooltip)
+        self.assertIn("次点", tooltip)
+
+        # ...and in the table
+        self.page.click("#tabTable")
+        self.page.wait_for_function(
+            "() => document.getElementById('tableNotice').hidden", timeout=15000
+        )
+        headers = self.page.eval_on_selector_all(
+            "#matrixTable thead th", "els => els.map(e => e.textContent.trim())"
+        )
+        self.assertIn("類似がん種 (TCGA)", headers[4])
+        cell = self.page.eval_on_selector(
+            "#matrixTable tbody tr:has(td.name a:text-is('HEP G2')) td:nth-child(5)",
+            "e => ({text: e.textContent, title: e.title})",
+        )
+        self.assertIn("LIHC", cell["text"])
+        self.assertIn("肝細胞がん", cell["text"])
+        # The runners-up live in the title so the column stays readable.
+        self.assertEqual(cell["title"].count("\n"), 2)
+
+    def test_the_tsv_export_carries_the_similarity(self):
+        tsv = self.page.evaluate(
+            """async () => {
+              const r = await fetch('/api/expression.tsv', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({genes: 'GAPDH', metric: 'ntpm'}),
+              });
+              return r.text();
+            }"""
+        )
+        lines = tsv.strip().split("\n")
+        self.assertIn("Similar TCGA cohorts (top 3)", lines[0])
+        hepg2 = [l for l in lines if l.startswith("HEP G2\t")]
+        self.assertEqual(len(hepg2), 1)
+        self.assertIn("LIHC (rho=", hepg2[0])
 
     def test_the_table_shows_every_matching_cell_line(self):
         """It used to stop at 500 rows, so cell lines went missing from the

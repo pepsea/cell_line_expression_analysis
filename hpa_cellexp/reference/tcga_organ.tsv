@@ -1,34 +1,44 @@
-tcga_code	organ	description
-ACC	Adrenal gland	Adrenocortical carcinoma
-BLCA	Urinary bladder	Bladder urothelial carcinoma
-BRCA	Breast	Breast invasive carcinoma
-CESC	Cervix	Cervical squamous cell carcinoma and endocervical adenocarcinoma
-CHOL	Bile duct	Cholangiocarcinoma
-COAD	Colon	Colon adenocarcinoma
-DLBC	Lymphoid tissue	Lymphoid neoplasm diffuse large B-cell lymphoma
-ESCA	Esophagus	Esophageal carcinoma
-GBM	Brain	Glioblastoma multiforme
-HNSC	Head and neck	Head and neck squamous cell carcinoma
-KICH	Kidney	Kidney chromophobe
-KIRC	Kidney	Kidney renal clear cell carcinoma
-KIRP	Kidney	Kidney renal papillary cell carcinoma
-LAML	Bone marrow	Acute myeloid leukemia
-LGG	Brain	Brain lower grade glioma
-LIHC	Liver	Liver hepatocellular carcinoma
-LUAD	Lung	Lung adenocarcinoma
-LUSC	Lung	Lung squamous cell carcinoma
-MESO	Pleura	Mesothelioma
-OV	Ovary	Ovarian serous cystadenocarcinoma
-PAAD	Pancreas	Pancreatic adenocarcinoma
-PCPG	Adrenal gland	Pheochromocytoma and paraganglioma
-PRAD	Prostate	Prostate adenocarcinoma
-READ	Rectum	Rectum adenocarcinoma
-SARC	Soft tissue	Sarcoma
-SKCM	Skin	Skin cutaneous melanoma
-STAD	Stomach	Stomach adenocarcinoma
-TGCT	Testis	Testicular germ cell tumors
-THCA	Thyroid gland	Thyroid carcinoma
-THYM	Thymus	Thymoma
-UCEC	Endometrium	Uterine corpus endometrial carcinoma
-UCS	Uterus	Uterine carcinosarcoma
-UVM	Eye	Uveal melanoma
+# TCGA study code -> organ of origin, plus display names.
+#
+# Two jobs:
+#   organ        the last-resort 由来臓器 fallback (marked ※参考値 - similarity
+#                to a tumour cohort is not provenance)
+#   description  the cohort's full English name
+#   ja           the cohort's Japanese name, shown wherever the code is
+#
+# Codes are TCGA study abbreviations; the cohorts are patient tumours, not
+# cell lines.
+tcga_code	organ	description	ja
+ACC	Adrenal gland	Adrenocortical carcinoma	副腎皮質がん
+BLCA	Urinary bladder	Bladder urothelial carcinoma	膀胱尿路上皮がん
+BRCA	Breast	Breast invasive carcinoma	乳がん（浸潤性）
+CESC	Cervix	Cervical squamous cell carcinoma and endocervical adenocarcinoma	子宮頸がん
+CHOL	Bile duct	Cholangiocarcinoma	胆管がん
+COAD	Colon	Colon adenocarcinoma	結腸腺がん
+DLBC	Lymphoid tissue	Lymphoid neoplasm diffuse large B-cell lymphoma	びまん性大細胞型B細胞リンパ腫
+ESCA	Esophagus	Esophageal carcinoma	食道がん
+GBM	Brain	Glioblastoma multiforme	膠芽腫
+HNSC	Head and neck	Head and neck squamous cell carcinoma	頭頸部扁平上皮がん
+KICH	Kidney	Kidney chromophobe	腎嫌色素細胞がん
+KIRC	Kidney	Kidney renal clear cell carcinoma	腎明細胞がん
+KIRP	Kidney	Kidney renal papillary cell carcinoma	腎乳頭状細胞がん
+LAML	Bone marrow	Acute myeloid leukemia	急性骨髄性白血病
+LGG	Brain	Brain lower grade glioma	低悪性度神経膠腫
+LIHC	Liver	Liver hepatocellular carcinoma	肝細胞がん
+LUAD	Lung	Lung adenocarcinoma	肺腺がん
+LUSC	Lung	Lung squamous cell carcinoma	肺扁平上皮がん
+MESO	Pleura	Mesothelioma	中皮腫
+OV	Ovary	Ovarian serous cystadenocarcinoma	卵巣漿液性がん
+PAAD	Pancreas	Pancreatic adenocarcinoma	膵腺がん
+PCPG	Adrenal gland	Pheochromocytoma and paraganglioma	褐色細胞腫・傍神経節腫
+PRAD	Prostate	Prostate adenocarcinoma	前立腺腺がん
+READ	Rectum	Rectum adenocarcinoma	直腸腺がん
+SARC	Soft tissue	Sarcoma	肉腫
+SKCM	Skin	Skin cutaneous melanoma	皮膚悪性黒色腫
+STAD	Stomach	Stomach adenocarcinoma	胃腺がん
+TGCT	Testis	Testicular germ cell tumors	精巣胚細胞腫瘍
+THCA	Thyroid gland	Thyroid carcinoma	甲状腺がん
+THYM	Thymus	Thymoma	胸腺腫
+UCEC	Endometrium	Uterine corpus endometrial carcinoma	子宮体がん
+UCS	Uterus	Uterine carcinosarcoma	子宮がん肉腫
+UVM	Eye	Uveal melanoma	ぶどう膜黒色腫

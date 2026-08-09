@@ -150,6 +150,28 @@ def _value(gene: str, cell_line: str, organ: str) -> float:
     return round(level, 1)
 
 
+def _demo_tcga_rows() -> List[Tuple[int, str, int, float, float]]:
+    """(cell_line_id, cohort, rank, nes, spearman) for every demo cell line."""
+    from .reference import tcga_organ_map
+
+    by_organ: Dict[str, List[str]] = {}
+    for code, organ in sorted(tcga_organ_map().items()):
+        by_organ.setdefault(organ, []).append(code)
+    every_code = sorted(tcga_organ_map())
+
+    out: List[Tuple[int, str, int, float, float]] = []
+    for cell_id, (name, organ, _disease, _cvcl) in enumerate(_CELL_LINES, start=1):
+        matching = by_organ.get(organ, [])
+        others = [c for c in every_code if c not in matching]
+        # Deterministic, so a rebuilt demo database is byte-comparable.
+        offset = int(_noise("tcga|" + name) * 1000) % max(len(others), 1)
+        picks = (matching + others[offset:] + others[:offset])[:3]
+        for rank, code in enumerate(picks, start=1):
+            rho = round(max(0.05, 0.86 - 0.17 * (rank - 1) - _noise("rho|" + name + code) * 0.05), 2)
+            out.append((cell_id, code, rank, round(rho * 3.1, 2), rho))
+    return out
+
+
 def build_demo_database(db_path: str) -> IngestReport:
     report = IngestReport()
 
@@ -191,6 +213,16 @@ def build_demo_database(db_path: str) -> IngestReport:
                 rows.append((gene_id, cell_id, value, value, value))
         cursor.executemany("INSERT INTO expression VALUES (?,?,?,?,?)", rows)
 
+        # Synthetic TCGA similarity, so the "which patient tumour does this
+        # cell line resemble" column has something to show.  Shaped like the
+        # real thing - the cohorts matching the cell line's own organ score
+        # highest - but the numbers are made up, like every value in here.
+        cursor.executemany(
+            "INSERT INTO tcga_similarity (cell_line_id, tcga_cancer, rank, nes, spearman) "
+            "VALUES (?,?,?,?,?)",
+            _demo_tcga_rows(),
+        )
+
         cursor.executemany(
             "INSERT OR REPLACE INTO meta (key, value) VALUES (?,?)",
             sorted(
@@ -206,7 +238,7 @@ def build_demo_database(db_path: str) -> IngestReport:
                                 "name": "hpa_cellexp/demo.py（合成データ・実測値ではありません）"
                             },
                             "metadata": [],
-                            "tcga": None,
+                            "tcga": {"name": "hpa_cellexp/demo.py（合成データ）"},
                         },
                         ensure_ascii=False,
                     ),

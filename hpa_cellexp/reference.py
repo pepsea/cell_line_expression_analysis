@@ -30,6 +30,7 @@ __all__ = [
     "display_rank",
     "natural_key",
     "tcga_organ_map",
+    "tcga_name",
     "organ_from_text",
     "organ_from_cell_line_name",
     "normalise_organ",
@@ -128,6 +129,24 @@ def tcga_organ_map() -> Dict[str, str]:
         if len(row) >= 2 and row[0] and row[1]:
             mapping[row[0].strip().upper()] = row[1].strip()
     return mapping
+
+
+@lru_cache(maxsize=1)
+def _tcga_names() -> Dict[str, Tuple[str, Optional[str]]]:
+    """``{"LUAD": ("Lung adenocarcinoma", "肺腺がん"), ...}``."""
+    names: Dict[str, Tuple[str, Optional[str]]] = {}
+    for row in _read_tsv("tcga_organ.tsv")[1:]:  # skip header
+        if len(row) >= 3 and row[0]:
+            ja = row[3].strip() if len(row) >= 4 and row[3].strip() else None
+            names[row[0].strip().upper()] = (row[2].strip(), ja)
+    return names
+
+
+def tcga_name(code: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    """``(English cohort name, Japanese name)`` for a TCGA study code."""
+    if not code:
+        return None, None
+    return _tcga_names().get(code.strip().upper(), (None, None))
 
 
 @lru_cache(maxsize=1)

@@ -26,6 +26,11 @@ _TOKEN_SPLIT = re.compile(r"[\s,;|]+")
 
 MAX_GENES = 200
 
+# How many TCGA cohorts to report per cell line.  Similarity to a patient
+# tumour cohort says how good a model the cell line is; the top match alone
+# reads as more certain than it is when the runners-up score almost the same.
+TCGA_TOP_N = 3
+
 
 def split_gene_tokens(raw: Any) -> List[str]:
     """Normalise gene input given either as a list or as one pasted string."""
@@ -49,6 +54,18 @@ class ExpressionRequest(BaseModel):
     diseases: List[str] = Field(default_factory=list)
     cellLineQuery: Optional[str] = None
     cellLines: List[str] = Field(default_factory=list)
+
+
+def _tcga_summary(hits: List[Dict[str, Any]]) -> str:
+    """"LUAD (rho=0.79); LUSC (rho=0.71)" - one cell, so the export stays a
+    flat table that a spreadsheet can open."""
+    parts = []
+    for hit in hits:
+        rho = hit.get("spearman")
+        parts.append(
+            "{} (rho={:.2f})".format(hit["cancer"], rho) if rho is not None else hit["cancer"]
+        )
+    return "; ".join(parts)
 
 
 def create_app(db_path: str = DEFAULT_DB_PATH) -> FastAPI:
@@ -137,10 +154,11 @@ def create_app(db_path: str = DEFAULT_DB_PATH) -> FastAPI:
         def build() -> Dict[str, Any]:
             result = db.expression_matrix(tokens, metric=payload.metric, **_filters(payload))
             ids = [c["id"] for c in result["cellLines"]]
-            tcga = db.tcga_for_cell_lines(ids, top=1)
+            # Up to three: a single best match reads as more certain than it
+            # is when the runners-up score almost the same.
+            tcga = db.tcga_for_cell_lines(ids, top=TCGA_TOP_N)
             for cell in result["cellLines"]:
-                hits = tcga.get(cell["id"]) or []
-                cell["tcga"] = hits[0]["cancer"] if hits else None
+                cell["tcga"] = tcga.get(cell["id"]) or []
             return result
 
         return _guard(build)
@@ -154,11 +172,15 @@ def create_app(db_path: str = DEFAULT_DB_PATH) -> FastAPI:
         result = _guard(
             lambda: db.expression_matrix(tokens, metric=payload.metric, **_filters(payload))
         )
+        tcga = _guard(
+            lambda: db.tcga_for_cell_lines([c["id"] for c in result["cellLines"]], top=TCGA_TOP_N)
+        )
         buffer = io.StringIO()
         writer = csv.writer(buffer, delimiter="\t", lineterminator="\n")
         metric = result["metric"]
         writer.writerow(
-            ["Cell line", "Organ", "Disease", "Species", "Cellosaurus", "Database URL"]
+            ["Cell line", "Organ", "Disease", "Species", "Cellosaurus", "Database URL",
+             "Similar TCGA cohorts (top {})".format(TCGA_TOP_N)]
             + ["{} ({})".format(g["symbol"], metric) for g in result["genes"]]
         )
         for column, cell in enumerate(result["cellLines"]):
@@ -170,6 +192,7 @@ def create_app(db_path: str = DEFAULT_DB_PATH) -> FastAPI:
                     cell["species"] or "",
                     cell["cellosaurusId"] or "",
                     cell["databaseUrl"],
+                    _tcga_summary(tcga.get(cell["id"]) or []),
                 ]
                 + [
                     "" if result["values"][row][column] is None else result["values"][row][column]

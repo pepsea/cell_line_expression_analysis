@@ -186,7 +186,7 @@ HPA の配布ファイル（`.tsv` / `.tsv.zip` / `.tsv.gz` のいずれでも�
 |---|---|---|
 | `rna_celline.tsv` | 発現マトリクス（遺伝子 × 細胞株の TPM / pTPM / nTPM） | **必須** |
 | `cell_line_analysis_data.tsv` | 細胞株のアノテーション（由来臓器・疾患・種・Cellosaurus ID） | 推奨 |
-| `rna_cell_line_tcga_comparison.tsv` | 細胞株と TCGA がんの類似度 | 任意 |
+| `rna_cell_line_tcga_comparison.tsv` | 細胞株と TCGA がんの類似度（[下記](#類似がん種-tcga-とは)） | 任意 |
 | `cellosaurus.txt` | **細胞株の由来組織・Cellosaurus ID・種・性別・年齢**（[Cellosaurus](https://ftp.expasy.org/databases/cellosaurus/) より） | **強く推奨** |
 
 ### 4.2 取り込み
@@ -387,6 +387,29 @@ HPA の細胞株リソースは全てヒト由来のため、種の列が無い�
 `hpa_cellexp/static/app.js` の `MAX_COL_WIDTH` / `COMFORT_COL_WIDTH` /
 `MIN_COL_WIDTH` / `PLOT_WIDTH_FRACTION` で調整できます
 （判定は `geneColumnWidth()` に集約）。
+
+### 類似がん種 (TCGA) とは
+
+HPA の `rna_cell_line_tcga_comparison.tsv` は、各細胞株の発現プロファイルが
+**実際の患者腫瘍コホート (TCGA) のどれにどれくらい似ているか**を数値化したものです。
+「その細胞株が、モデルとして妥当かどうか」を判断する材料になります。
+
+> ⚠️ **これは「由来」ではなく「似ている」です。** A-549 が LUAD に最も似ているのは
+> 肺由来である証拠ではありません。由来臓器の判定に使うのは他に手がかりが無いときだけで、
+> その場合は `TCGA類似度からの推定 (LUAD) ※参考値` と根拠を明示します。
+
+**上位3件**を表示します。1位だけだと、2位が僅差のときに実際より確からしく見えるためです。
+
+| 場所 | 表示 |
+| --- | --- |
+| ヒートマップのツールチップ | `類似がん種 (TCGA): LIHC 肝細胞がん (ρ 0.76)` と、次点2件 |
+| テーブル | 「類似がん種 (TCGA)」列。セルには1位、ツールチップに3件すべて |
+| TSV | `Similar TCGA cohorts (top 3)` 列に `LIHC (rho=0.76); LUSC (rho=0.66); ...` |
+
+ρ は Spearman 順位相関です。がん種の日本語名は
+`hpa_cellexp/reference/tcga_organ.tsv` の `ja` 列で管理しています。
+
+`--tcga` を渡さずに構築した場合、この表示は出ません（列は `—` になります）。
 
 ### 並び替え
 

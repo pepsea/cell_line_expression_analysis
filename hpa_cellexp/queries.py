@@ -10,7 +10,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .config import SCHEMA_VERSION
 from .reference import (cellosaurus_url, display_rank, label_ja, name_key,
-                        natural_key, proteinatlas_url, search_terms)
+                        natural_key, proteinatlas_url, search_terms,
+                        tcga_name)
 
 __all__ = ["Database", "DatabaseMissing", "SchemaOutdated", "UNASSIGNED_ORGAN"]
 
@@ -403,7 +404,14 @@ class Database:
             "values": values,
         }
 
-    def tcga_for_cell_lines(self, cell_line_ids: Sequence[int], top: int = 1) -> Dict[int, List[Dict[str, Any]]]:
+    def tcga_for_cell_lines(self, cell_line_ids: Sequence[int], top: int = 3) -> Dict[int, List[Dict[str, Any]]]:
+        """``{cell_line_id: [{cancer, rank, spearman, name, nameJa}, ...]}``.
+
+        Which patient tumour cohorts a cell line's expression profile most
+        resembles - a read on how good a model it is, NOT where it came from.
+        More than one is worth showing: when the top two score alike, the
+        single best match is not the answer it looks like.
+        """
         out: Dict[int, List[Dict[str, Any]]] = {}
         ids = list(cell_line_ids)
         for start in range(0, len(ids), _PARAM_CHUNK):
@@ -415,7 +423,14 @@ class Database:
                 chunk + [top],
             )
             for row in rows:
+                english, ja = tcga_name(row["tcga_cancer"])
                 out.setdefault(row["cell_line_id"], []).append(
-                    {"cancer": row["tcga_cancer"], "rank": row["rank"], "spearman": row["spearman"]}
+                    {
+                        "cancer": row["tcga_cancer"],
+                        "rank": row["rank"],
+                        "spearman": row["spearman"],
+                        "name": english,
+                        "nameJa": ja,
+                    }
                 )
         return out

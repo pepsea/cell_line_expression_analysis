@@ -11,7 +11,7 @@
 // A stale Docker image or a cached script is otherwise invisible: the page
 // looks fine and simply behaves like an older build, which is impossible to
 // tell apart from a bug.  Keep in step with hpa_cellexp/__init__.py.
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.9.0';
 
 // ---------------------------------------------------------------------------
 // state
@@ -202,6 +202,13 @@ async function init() {
   restoreFromHash();
   refreshMatchCount();
   updateGeneChips();
+}
+
+/** "LUAD 肺腺がん (\u03c1 0.79)" - one TCGA cohort a cell line resembles. */
+function tcgaLabel(hit) {
+  const name = hit.nameJa || hit.name;
+  const rho = typeof hit.spearman === 'number' ? ` (\u03c1 ${hit.spearman.toFixed(2)})` : '';
+  return `${hit.cancer}${name ? ` ${name}` : ''}${rho}`;
 }
 
 /** Show which build is on screen, and say so loudly when it is not the one
@@ -1284,6 +1291,15 @@ function renderTooltip(tooltip, hit, event) {
     }
     if (cell.disease) html += `<div class="t-row">疾患: ${escapeHtml(cell.disease)}</div>`;
     if (cell.species) html += `<div class="t-row">種: ${escapeHtml(cell.species)}</div>`;
+    if (cell.tcga && cell.tcga.length) {
+      // How closely this cell line resembles real patient tumours - a read on
+      // how good a model it is.  Not where it came from: 由来臓器 above is.
+      html += `<div class="t-row">類似がん種 (TCGA): ${escapeHtml(tcgaLabel(cell.tcga[0]))}</div>`;
+      const rest = cell.tcga.slice(1).map(tcgaLabel).join(' / ');
+      if (rest) {
+        html += `<div class="t-row" style="opacity:.7;font-size:11px">└ 次点: ${escapeHtml(rest)}</div>`;
+      }
+    }
     if (hit.kind === 'cell') {
       const gene = data.genes[hit.col];
       const value = data.values[hit.col][state.view[hit.row]];
@@ -1357,7 +1373,8 @@ function renderTable() {
   const dark = isDarkMode();
 
   const headRow = document.createElement('tr');
-  [['細胞株', 'name'], ['由来臓器', 'organ'], ['疾患', null], ['種', null]].forEach(([label, key]) => {
+  [['細胞株', 'name'], ['由来臓器', 'organ'], ['疾患', null], ['種', null],
+   ['類似がん種 (TCGA)', null]].forEach(([label, key]) => {
     const th = document.createElement('th');
     th.className = 'left';
     th.textContent = label;
@@ -1456,6 +1473,17 @@ function renderTable() {
       td.textContent = value || '—';
       tr.append(td);
     });
+
+    const tcgaTd = document.createElement('td');
+    tcgaTd.className = 'left meta';
+    const hits = cell.tcga || [];
+    tcgaTd.textContent = hits.length ? tcgaLabel(hits[0]) : '—';
+    if (hits.length) {
+      // The runners-up would make the column unreadable inline, but they are
+      // the part that says whether the top match is actually decisive.
+      tcgaTd.title = hits.map((h, i) => `${i + 1}. ${tcgaLabel(h)}`).join('\n');
+    }
+    tr.append(tcgaTd);
 
     data.genes.forEach((_, r) => {
       const td = document.createElement('td');

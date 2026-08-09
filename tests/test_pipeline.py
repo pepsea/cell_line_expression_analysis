@@ -500,7 +500,12 @@ class ApiTests(unittest.TestCase):
         self.assertEqual([g["symbol"] for g in body["genes"]], ["ALB", "EGFR", "PTPRC"])
         self.assertEqual(body["unmatchedGenes"], ["MISSING"])
         self.assertTrue(all("databaseUrl" in c for c in body["cellLines"]))
-        self.assertEqual({c["tcga"] for c in body["cellLines"]}, {"LIHC", "LUAD", "LAML"})
+        # tcga is a ranked list now, not a single code.
+        top = {c["tcga"][0]["cancer"] for c in body["cellLines"] if c["tcga"]}
+        self.assertEqual(top, {"LIHC", "LUAD", "LAML"})
+        hepg2 = next(c for c in body["cellLines"] if c["name"] == "HEP G2")
+        self.assertEqual(hepg2["tcga"][0]["nameJa"], "肝細胞がん")
+        self.assertEqual(hepg2["tcga"][0]["rank"], 1)
 
     def test_expression_requires_genes(self):
         self.assertEqual(self.client.post("/api/expression", json={"genes": ""}).status_code, 400)

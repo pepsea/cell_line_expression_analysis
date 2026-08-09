@@ -518,11 +518,11 @@ function renderGeneChipsWithMatches(data) {
  *
  * A plain arithmetic mean is dominated by whichever gene has the largest
  * absolute values - add GAPDH to the list and the ranking becomes a GAPDH
- * ranking.  The other two bases put every gene on its own 0-1 scale first
- * (log10(1+v) over that gene's own maximum in the current selection), so a
- * housekeeping gene and a low-abundance marker count the same:
+ * ranking.  The other two bases avoid that in different ways:
  *
- *   norm-mean : average of the per-gene normalised values - "high overall"
+ *   log-mean  : mean of log10(1+value), i.e. the geometric mean of 1+value.
+ *               Magnitude still counts, but it counts in orders of magnitude,
+ *               so one huge gene no longer decides the ranking on its own.
  *   norm-min  : the SMALLEST per-gene normalised value - the bottleneck gene,
  *               so a cell line only ranks high when EVERY gene is high.
  *               This is the one to use for "全遺伝子が満遍なく発現".
@@ -531,16 +531,17 @@ function renderGeneChipsWithMatches(data) {
  * are skipped, otherwise they would drag every cell line's minimum to 0.
  */
 const SORT_MEAN = 'mean';
-const SORT_NORM_MEAN = 'norm-mean';
+const SORT_LOG_MEAN = 'log-mean';
 const SORT_NORM_MIN = 'norm-min';
 
 const SORT_BASES = [
   { value: SORT_NORM_MIN,
     label: '全遺伝子が満遍なく（最小値）',
     help: '遺伝子ごとに0-1へ正規化し、その最小値で並べます。最も弱い遺伝子でも高い細胞株が上位に来ます。' },
-  { value: SORT_NORM_MEAN,
-    label: '全遺伝子の正規化平均',
-    help: '遺伝子ごとに0-1へ正規化してから平均します。発現量の大きい遺伝子に偏りません。' },
+  { value: SORT_LOG_MEAN,
+    label: '全遺伝子の対数平均',
+    help: 'log10(1+発現量) の平均（= 1+発現量 の幾何平均）。'
+        + '桁で効くので、高発現遺伝子に算術平均ほど引きずられません。' },
   { value: SORT_MEAN,
     label: '全遺伝子の平均（絶対値）',
     help: '生の発現量の算術平均。GAPDH のような高発現遺伝子に強く影響されます。' },
@@ -630,7 +631,10 @@ function sortKeys(data) {
         const r = genes[i];
         const v = data.values[r][c];
         if (v === null || v === undefined) continue;   // no data: not a zero
-        const x = basis === SORT_MEAN ? v : scalePosition(v, maxima.rows[r]);
+        let x;
+        if (basis === SORT_MEAN) x = v;
+        else if (basis === SORT_LOG_MEAN) x = Math.log10(1 + v);
+        else x = scalePosition(v, maxima.rows[r]);   // per-gene 0-1, for the minimum
         sum += x;
         seen += 1;
         if (x < lowest) lowest = x;
@@ -719,7 +723,7 @@ const HM = {
 const ORGAN_COL_WIDTH = 104;
 
 // Share of the width beside the gutter that the gene columns spread over.
-const PLOT_WIDTH_FRACTION = 2 / 3;
+const PLOT_WIDTH_FRACTION = 1 / 2;
 
 /** Row and global maxima, memoised - paint() runs on every mousemove and
  *  scanning 200 x 1,200 values each time would make hovering feel sticky. */

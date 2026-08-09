@@ -216,7 +216,10 @@ class UiTests(unittest.TestCase):
           for (const r of usable) {
             const v = d.values[r][i];
             if (v === null || v === undefined) continue;
-            const x = basis === 'mean' ? v : norm(v, maxima[r]);
+            let x;
+            if (basis === 'mean') x = v;
+            else if (basis === 'log-mean') x = Math.log10(1 + v);
+            else x = norm(v, maxima[r]);
             sum += x; n += 1; if (x < lo) lo = x;
           }
           if (!n) return null;
@@ -238,11 +241,11 @@ class UiTests(unittest.TestCase):
         self.page.select_option("#sortSelect", "value-desc")
         self.page.wait_for_timeout(300)
         values = self.page.eval_on_selector_all("#sortGene option", "e => e.map(o => o.value)")
-        for basis in ("norm-min", "norm-mean", "mean"):
+        for basis in ("norm-min", "log-mean", "mean"):
             self.assertIn(basis, values)
 
-    def test_normalised_mean_is_not_dominated_by_the_largest_gene(self):
-        """A plain mean ranks by GAPDH alone; the normalised one must not."""
+    def test_log_mean_is_not_dominated_by_the_largest_gene(self):
+        """A plain mean ranks by GAPDH alone; the log mean must not."""
         self.run_genes("GAPDH, ALB, KLK3, PTPRC, MITF, GFAP")
         self.page.select_option("#sortSelect", "value-desc")
         self.page.wait_for_timeout(300)
@@ -252,10 +255,30 @@ class UiTests(unittest.TestCase):
         self._ordered_desc("mean")
         by_mean = self.visible_names(6)
 
-        self.page.select_option("#sortGene", "norm-mean")
+        self.page.select_option("#sortGene", "log-mean")
         self.page.wait_for_timeout(400)
-        self._ordered_desc("norm-mean")
+        self._ordered_desc("log-mean")
         self.assertNotEqual(by_mean, self.visible_names(6))
+
+    def test_log_mean_replaced_the_normalised_mean(self):
+        self.run_genes("GAPDH, ALB, PTPRC")
+        self.page.select_option("#sortSelect", "value-desc")
+        self.page.wait_for_timeout(300)
+        values = self.page.eval_on_selector_all("#sortGene option", "e => e.map(o => o.value)")
+        self.assertIn("log-mean", values)
+        self.assertNotIn("norm-mean", values)
+        labels = self.page.eval_on_selector_all("#sortGene option", "e => e.map(o => o.textContent)")
+        self.assertIn("全遺伝子の対数平均", labels)
+
+    def test_log_mean_is_the_geometric_mean_of_one_plus_value(self):
+        """log10(1+v) averaged - so magnitude counts in orders, not in units."""
+        self.run_genes("GAPDH, ALB, KLK3, PTPRC, MITF")
+        self.page.select_option("#sortSelect", "value-desc")
+        self.page.wait_for_timeout(300)
+        self.page.select_option("#sortGene", "log-mean")
+        self.page.wait_for_timeout(400)
+        keys = self._ordered_desc("log-mean")
+        self.assertTrue(all(k is None or k >= 0 for k in keys))
 
     def test_min_basis_puts_evenly_expressed_cell_lines_first(self):
         """The bottleneck basis: a cell line only ranks high when its weakest

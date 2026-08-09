@@ -208,6 +208,34 @@ button.dataset-chip[aria-expanded="true"] { border-color: var(--accent); color: 
 }
 .demo-banner.on { display: flex; }
 
+/* Which build is on screen.  Quiet when the page and the server agree,
+   impossible to miss when they do not. */
+.version-badge {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-muted);
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.version-badge[hidden] { display: none; }
+.version-badge.stale {
+  color: #7a3c00;
+  background: #ffe6b8;
+  border-color: #e0a641;
+  font-weight: 600;
+}
+
+.stale-banner {
+  padding: 9px 22px;
+  background: #d94f2b;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+.stale-banner[hidden] { display: none; }
+
 .layout {
   display: grid;
   grid-template-columns: 336px minmax(0, 1fr);

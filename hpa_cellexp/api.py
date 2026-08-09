@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from . import __version__
 from .config import DEFAULT_DB_PATH, STATIC_DIR
 from .queries import METRICS, Database, DatabaseMissing
 
@@ -54,7 +55,7 @@ def create_app(db_path: str = DEFAULT_DB_PATH) -> FastAPI:
     app = FastAPI(
         title="HPA Cell Line Expression Explorer",
         description="Gene expression across human cell lines, from Human Protein Atlas data.",
-        version="1.0.0",
+        version=__version__,
     )
     db = Database(db_path)
     app.state.db = db
@@ -87,6 +88,9 @@ def create_app(db_path: str = DEFAULT_DB_PATH) -> FastAPI:
         def build() -> Dict[str, Any]:
             payload = db.info()
             payload["facets"] = db.facets()
+            # The running code's version, so the page can tell the user when
+            # the browser is showing a cached copy of an older build.
+            payload["appVersion"] = __version__
             payload["maxGenes"] = MAX_GENES
             payload["availableMetrics"] = [m for m in METRICS if m in payload["metrics"]] or list(METRICS)
             return payload

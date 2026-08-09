@@ -7,6 +7,12 @@
  */
 'use strict';
 
+// Baked into the script and compared against the server's version on load.
+// A stale Docker image or a cached script is otherwise invisible: the page
+// looks fine and simply behaves like an older build, which is impossible to
+// tell apart from a bug.  Keep in step with hpa_cellexp/__init__.py.
+const APP_VERSION = '1.3.0';
+
 // ---------------------------------------------------------------------------
 // state
 // ---------------------------------------------------------------------------
@@ -144,6 +150,7 @@ async function init() {
   $('datasetChip').textContent =
     `${meta.release} · ${meta.geneCount.toLocaleString()} 遺伝子 × ${meta.cellLineCount.toLocaleString()} 細胞株`;
   if (meta.isDemo) $('demoBanner').classList.add('on');
+  showVersion(meta.appVersion);
 
   meta.facets.organs.forEach((o) => {
     if (o.labelJa) state.organJa[o.value] = o.labelJa;
@@ -189,6 +196,37 @@ async function init() {
   restoreFromHash();
   refreshMatchCount();
   updateGeneChips();
+}
+
+/** Show which build is on screen, and say so loudly when it is not the one
+ *  the server is running.
+ *
+ *  Without this a stale image or a cached script is undiagnosable from the
+ *  page: every fixed bug still reproduces and there is nothing to look at.
+ *  The badge itself is the primary signal - if it is missing entirely, the
+ *  browser is running a script from before this existed.
+ */
+function showVersion(serverVersion) {
+  const badge = $('versionBadge');
+  if (!badge) return;
+  badge.hidden = false;
+  const stale = serverVersion && serverVersion !== APP_VERSION;
+  badge.textContent = stale ? `v${APP_VERSION} ≠ v${serverVersion}` : `v${APP_VERSION}`;
+  badge.classList.toggle('stale', Boolean(stale));
+  badge.title = stale
+    ? `表示中のページは v${APP_VERSION}、サーバーは v${serverVersion} です。`
+      + '\n古いスクリプトがキャッシュされています。スーパーリロード'
+      + '（Mac: Cmd+Shift+R / Win: Ctrl+F5）してください。'
+    : `hpa_cellexp v${APP_VERSION}`;
+  if (stale) {
+    const banner = $('staleBanner');
+    if (banner) {
+      banner.textContent =
+        `このページは古いバージョン (v${APP_VERSION}) を表示しています。`
+        + `サーバーは v${serverVersion} です。スーパーリロード（Cmd+Shift+R）してください。`;
+      banner.hidden = false;
+    }
+  }
 }
 
 /** "Which files is this built from?" - shown behind the dataset chip. */

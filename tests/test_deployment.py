@@ -189,6 +189,24 @@ class VersionTests(unittest.TestCase):
         self.assertIn(__version__, text)
         self.assertIn("schema v", text)
 
+    def test_the_page_and_the_package_agree_on_the_version(self):
+        """The badge is only useful if these three cannot drift apart.
+
+        A wrong APP_VERSION would report a correctly-deployed page as stale,
+        which is worse than no badge at all.
+        """
+        from hpa_cellexp import __version__
+
+        app_js = read(os.path.join("hpa_cellexp", "static", "app.js"))
+        match = re.search(r"const APP_VERSION = '([^']+)'", app_js)
+        self.assertIsNotNone(match, "APP_VERSION not found in app.js")
+        self.assertEqual(match.group(1), __version__)
+
+        index = read(os.path.join("hpa_cellexp", "static", "index.html"))
+        buster = re.search(r"app\.js\?v=([0-9.]+)", index)
+        self.assertIsNotNone(buster, "app.js is loaded without a cache buster")
+        self.assertEqual(buster.group(1), __version__)
+
     def test_readme_documents_the_stale_build_failure(self):
         readme = read("README.md")
         self.assertIn("unrecognized arguments", readme)

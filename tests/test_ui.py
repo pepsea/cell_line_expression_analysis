@@ -388,6 +388,32 @@ class UiTests(unittest.TestCase):
         for expected in ("Kelly", "SH-SY5Y", "SK-N-SH", "U-251 MG"):
             self.assertIn(expected, names)
 
+    def test_the_page_shows_which_build_it_is_running(self):
+        """A stale image or a cached script looks exactly like a bug that was
+        never fixed.  The badge is what tells those two apart."""
+        from hpa_cellexp import __version__
+
+        badge = self.page.locator("#versionBadge")
+        self.assertFalse(badge.is_hidden(), "the version badge must be visible")
+        self.assertEqual(badge.inner_text().strip(), "v{}".format(__version__))
+        self.assertNotIn("stale", badge.get_attribute("class") or "")
+        self.assertTrue(self.page.locator("#staleBanner").is_hidden())
+
+    def test_a_mismatched_build_is_reported_loudly(self):
+        version = self.page.evaluate("() => APP_VERSION")
+        self.page.evaluate("() => showVersion('0.0.1-other')")
+        self.page.wait_for_timeout(100)
+        badge = self.page.locator("#versionBadge")
+        self.assertIn("stale", badge.get_attribute("class") or "")
+        self.assertIn("0.0.1-other", badge.inner_text())
+        banner = self.page.locator("#staleBanner")
+        self.assertFalse(banner.is_hidden())
+        self.assertIn("Cmd+Shift+R", banner.inner_text())
+        # Back to agreement: no banner, no warning styling.
+        self.page.evaluate("(v) => showVersion(v)", version)
+        self.page.wait_for_timeout(100)
+        self.assertNotIn("stale", badge.get_attribute("class") or "")
+
     def test_an_organ_label_never_sits_on_another_organs_rows(self):
         """Reported as "LNCAP は前立腺ではなく乳腺に表示される".
 

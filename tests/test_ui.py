@@ -491,6 +491,45 @@ class UiTests(unittest.TestCase):
         self.page.wait_for_timeout(600)
         self.assertEqual(self.page.evaluate("() => groupBoundaryRows()"), [])
 
+    def test_the_table_shows_every_matching_cell_line(self):
+        """It used to stop at 500 rows, so cell lines went missing from the
+        table depending on the sort order."""
+        self.run_genes("GAPDH, EGFR, ALB")
+        self.page.click("#tabTable")
+        self.page.wait_for_function(
+            "() => document.getElementById('tableNotice').hidden", timeout=15000
+        )
+        counts = self.page.evaluate(
+            """() => ({
+              rendered: document.querySelectorAll('#matrixTable tbody tr').length,
+              matching: state.view.length,
+            })"""
+        )
+        self.assertEqual(counts["rendered"], counts["matching"])
+        self.assertGreater(counts["matching"], 40)
+        names = self.page.eval_on_selector_all(
+            "#matrixTable tbody tr td.name", "els => els.map(e => e.textContent.trim())"
+        )
+        self.assertIn("Kelly", names)
+        self.assertIn("LNCAP", names)
+
+    def test_a_resort_mid_render_does_not_leave_a_mixed_table(self):
+        """The body is filled a chunk at a time, so a render that a re-sort
+        superseded has to stop rather than interleave its rows."""
+        self.run_genes("GAPDH, EGFR, ALB")
+        self.page.click("#tabTable")
+        self.page.wait_for_timeout(200)
+        self.page.select_option("#sortSelect", "name")
+        self.page.select_option("#sortSelect", "organ")
+        self.page.select_option("#sortSelect", "name")
+        self.page.wait_for_function(
+            "() => document.getElementById('tableNotice').hidden", timeout=15000
+        )
+        rendered = self.page.eval_on_selector_all(
+            "#matrixTable tbody tr td.name", "els => els.map(e => e.textContent.trim())"
+        )
+        self.assertEqual(rendered, self.visible_names(999))
+
     def test_no_cell_line_is_lost_when_grouping_by_organ(self):
         """The heart of "由来臓器で並べると細胞が消える": every cell line the
         name ordering shows must still be on screen in the organ ordering."""

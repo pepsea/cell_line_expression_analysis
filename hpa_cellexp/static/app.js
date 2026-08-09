@@ -11,7 +11,7 @@
 // A stale Docker image or a cached script is otherwise invisible: the page
 // looks fine and simply behaves like an older build, which is impossible to
 // tell apart from a bug.  Keep in step with hpa_cellexp/__init__.py.
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.7.0';
 
 // ---------------------------------------------------------------------------
 // state
@@ -33,12 +33,18 @@ const state = {
   organJa: {},       // {"Lung": "肺"} - display labels for the heatmap gutter
   organRank: {},     // {"Lung": 14} - canonical (anatomical) display order
   tableDirty: true,  // the table view is built lazily - it is the expensive one
+  tableToken: 0,     // cancels a chunked table render that a re-sort superseded
 };
 
-// Rendering every cell line as DOM is unusable past a few hundred rows, and a
-// 1,200 x 200 table is not something anyone reads on screen anyway - beyond
-// this the heatmap and the TSV export are the right tools.
-const TABLE_ROW_LIMIT = 500;
+// The table shows every matching cell line.  It used to stop at 500, which
+// made rows genuinely disappear depending on the sort order - the one thing
+// this view must never do.
+//
+// Building 1,200 x 200 cells in one go blocks the page for seconds (measured:
+// 1,200 x 60 takes ~1.5s), so the body is filled a chunk at a time.  The chunk
+// is sized in CELLS, not rows, so a wide table takes smaller bites and each
+// one stays near a frame's worth of work.
+const TABLE_CELLS_PER_CHUNK = 2500;
 
 const $ = (id) => document.getElementById(id);
 
@@ -1384,9 +1390,13 @@ function renderTable() {
   });
   thead.append(headRow);
 
-  const fragment = document.createDocumentFragment();
-  const shown = state.view.slice(0, TABLE_ROW_LIMIT);
-  shown.forEach((cellIndex) => {
+  // Filled in chunks below; a token cancels a run that a re-sort superseded.
+  const token = (state.tableToken += 1);
+  const rows = state.view;
+  const notice = $('tableNotice');
+  const perChunk = Math.max(20, Math.ceil(TABLE_CELLS_PER_CHUNK / (data.genes.length + 4)));
+
+  const buildRow = (cellIndex) => {
     const cell = data.cellLines[cellIndex];
     const tr = document.createElement('tr');
 
@@ -1441,23 +1451,39 @@ function renderTable() {
       td.append(span);
       tr.append(td);
     });
+    return tr;
+  };
 
-    fragment.append(tr);
-  });
-  tbody.append(fragment);
-  state.tableDirty = false;
+  let next = 0;
+  let pending = document.createDocumentFragment();
+  const appendChunk = () => {
+    if (token !== state.tableToken) return;   // superseded by a newer render
+    const stop = Math.min(next + perChunk, rows.length);
+    for (; next < stop; next += 1) pending.append(buildRow(rows[next]));
 
-  const truncated = state.view.length - shown.length;
-  const notice = $('tableNotice');
-  if (truncated > 0) {
-    notice.hidden = false;
-    notice.textContent =
-      `先頭 ${TABLE_ROW_LIMIT.toLocaleString()} 細胞株のみ表示しています` +
-      `（該当 ${state.view.length.toLocaleString()} 件、残り ${truncated.toLocaleString()} 件）。` +
-      `全件はヒートマップまたは TSV ダウンロードでご確認ください。`;
-  } else {
+    // The first chunk goes in straight away so the view is never blank; the
+    // rest is held back and inserted once at the end.  Appending into a live
+    // table makes the browser re-measure every row already in it, which turns
+    // 1,200 x 60 from ~1.6s into ~15s.
+    if (!tbody.childElementCount || next >= rows.length) {
+      tbody.append(pending);
+      pending = document.createDocumentFragment();
+    }
+
+    if (next < rows.length) {
+      notice.hidden = false;
+      notice.textContent =
+        `${next.toLocaleString()} / ${rows.length.toLocaleString()} 細胞株を描画中…`;
+      requestAnimationFrame(appendChunk);
+      return;
+    }
     notice.hidden = true;
-  }
+    state.tableDirty = false;
+  };
+
+  // The first chunk is synchronous so a small table is complete on return and
+  // the view never flashes empty.
+  appendChunk();
 }
 
 function setView(which) {

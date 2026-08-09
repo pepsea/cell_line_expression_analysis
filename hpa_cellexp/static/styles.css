@@ -556,3 +556,13 @@ table.matrix td.val span { position: relative; z-index: 1; }
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
+
+/* Link out of a table column header.  The header's own click sorts, so this
+   is a separate, small target rather than the symbol itself. */
+.matrix th .th-link {
+  color: var(--ink-muted);
+  text-decoration: none;
+  font-weight: 400;
+  font-size: 11px;
+}
+.matrix th .th-link:hover { color: var(--accent, var(--ink)); text-decoration: underline; }

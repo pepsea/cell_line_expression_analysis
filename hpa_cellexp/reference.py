@@ -35,6 +35,7 @@ __all__ = [
     "normalise_organ",
     "normalise_species",
     "cellosaurus_url",
+    "proteinatlas_url",
     "extract_cvcl",
     "DEFAULT_SPECIES",
 ]
@@ -380,6 +381,21 @@ def extract_cvcl(*values: Optional[str]) -> Optional[str]:
         if match:
             return "CVCL_" + match.group(1).upper()
     return None
+
+
+def proteinatlas_url(symbol: Optional[str], ensembl_id: Optional[str] = None) -> str:
+    """Deep link into the Human Protein Atlas entry for a gene.
+
+    HPA's canonical gene URL is ``/<ensembl>-<symbol>``; with only one of the
+    two we fall back to its search, which resolves either on its own.
+    """
+    from urllib.parse import quote
+
+    if ensembl_id and symbol:
+        return "https://www.proteinatlas.org/{}-{}".format(ensembl_id, quote(symbol))
+    if ensembl_id:
+        return "https://www.proteinatlas.org/{}".format(ensembl_id)
+    return "https://www.proteinatlas.org/search/{}".format(quote(symbol or ""))
 
 
 def cellosaurus_url(cell_line_name: str, cvcl: Optional[str] = None) -> str:

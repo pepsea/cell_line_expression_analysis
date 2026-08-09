@@ -611,6 +611,42 @@ class CuratedOrganTests(unittest.TestCase):
                 self.assertEqual(R.organ_from_cell_line_name(name)[0], "Brain")
 
 
+class GeneLinkTests(unittest.TestCase):
+    """Clicking a gene has to reach that gene's page in HPA - the resource the
+    expression values come from."""
+
+    def test_canonical_url_uses_the_ensembl_id_and_symbol(self):
+        self.assertEqual(
+            R.proteinatlas_url("EGFR", "ENSG00000146648"),
+            "https://www.proteinatlas.org/ENSG00000146648-EGFR",
+        )
+
+    def test_a_missing_half_falls_back_to_something_that_still_resolves(self):
+        self.assertEqual(
+            R.proteinatlas_url("EGFR", None), "https://www.proteinatlas.org/search/EGFR"
+        )
+        self.assertEqual(
+            R.proteinatlas_url(None, "ENSG00000146648"),
+            "https://www.proteinatlas.org/ENSG00000146648",
+        )
+
+    def test_symbols_needing_escaping_are_quoted(self):
+        self.assertNotIn(" ", R.proteinatlas_url("A B", None))
+
+    def test_resolved_genes_carry_the_link(self):
+        with tempfile.TemporaryDirectory() as d:
+            from hpa_cellexp.demo import build_demo_database
+
+            path = os.path.join(d, "demo.sqlite")
+            build_demo_database(path)
+            found, _ = Database(path).resolve_genes(["EGFR", "GAPDH"])
+            self.assertEqual(len(found), 2)
+            for gene in found:
+                with self.subTest(gene=gene["symbol"]):
+                    self.assertIn("proteinatlas.org", gene["hpaUrl"])
+                    self.assertIn(gene["symbol"], gene["hpaUrl"])
+
+
 class SpeciesTests(unittest.TestCase):
     """Regression: the species facet listed ヒト and Homo sapiens separately."""
 

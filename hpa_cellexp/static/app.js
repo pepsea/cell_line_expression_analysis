@@ -11,7 +11,7 @@
 // A stale Docker image or a cached script is otherwise invisible: the page
 // looks fine and simply behaves like an older build, which is impossible to
 // tell apart from a bug.  Keep in step with hpa_cellexp/__init__.py.
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.8.0';
 
 // ---------------------------------------------------------------------------
 // state
@@ -1205,7 +1205,8 @@ function setupHeatmapEvents() {
     const hit = hitTest(event);
     const previous = state.hover;
     state.hover = hit;
-    viewport.style.cursor = hit && hit.row !== undefined ? 'pointer' : 'default';
+    const clickable = hit && (hit.row !== undefined || hit.kind === 'gene');
+    viewport.style.cursor = clickable ? 'pointer' : 'default';
     if (!hit || hit.kind === 'corner') {
       tooltip.style.display = 'none';
     } else {
@@ -1224,9 +1225,17 @@ function setupHeatmapEvents() {
 
   viewport.addEventListener('click', (event) => {
     const hit = hitTest(event);
+    if (!hit) return;
+    // A gene label opens that gene in the Human Protein Atlas - the source
+    // this data comes from - mirroring the cell line link into Cellosaurus.
+    if (hit.kind === 'gene') {
+      const gene = state.result.genes[hit.col];
+      if (gene && gene.hpaUrl) window.open(gene.hpaUrl, '_blank', 'noopener');
+      return;
+    }
     // Any hit that identifies a cell line - its name in the gutter or a value
     // cell in its row - opens that cell line in Cellosaurus.
-    if (!hit || hit.row === undefined) return;
+    if (hit.row === undefined) return;
     window.open(state.result.cellLines[state.view[hit.row]].databaseUrl, '_blank', 'noopener');
   });
 }
@@ -1259,7 +1268,10 @@ function renderTooltip(tooltip, hit, event) {
   if (hit.kind === 'gene') {
     const gene = data.genes[hit.col];
     html = `<div class="t-title">${escapeHtml(gene.symbol)}</div>` +
-      (gene.ensemblId ? `<div class="t-row">${escapeHtml(gene.ensemblId)}</div>` : '');
+      (gene.ensemblId ? `<div class="t-row">${escapeHtml(gene.ensemblId)}</div>` : '') +
+      (gene.hpaUrl
+        ? '<div class="t-row" style="opacity:.7;font-size:11px">クリックで Human Protein Atlas へ</div>'
+        : '');
   } else {
     const cell = data.cellLines[state.view[hit.row]];
     html = `<div class="t-title">${escapeHtml(cell.name)}</div>`;
@@ -1370,6 +1382,20 @@ function renderTable() {
     const th = document.createElement('th');
     th.textContent = gene.symbol;
     th.title = `${gene.symbol} でソート（${data.metric}）`;
+    if (gene.hpaUrl) {
+      // The header itself still sorts, so the link out to HPA is its own
+      // target rather than the symbol - otherwise sorting by a gene would
+      // navigate away from the page instead.
+      const out = document.createElement('a');
+      out.className = 'th-link';
+      out.href = gene.hpaUrl;
+      out.target = '_blank';
+      out.rel = 'noopener';
+      out.textContent = '↗';
+      out.title = `${gene.symbol} を Human Protein Atlas で開く`;
+      out.addEventListener('click', (event) => event.stopPropagation());
+      th.append(' ', out);
+    }
     th.addEventListener('click', () => {
       // Compare against the PREVIOUS basis: assigning first made this test
       // always true, so clicking a different gene flipped the direction

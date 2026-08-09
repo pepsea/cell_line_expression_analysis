@@ -10,7 +10,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .config import SCHEMA_VERSION
 from .reference import (cellosaurus_url, display_rank, label_ja, name_key,
-                        natural_key, search_terms)
+                        natural_key, proteinatlas_url, search_terms)
 
 __all__ = ["Database", "DatabaseMissing", "SchemaOutdated", "UNASSIGNED_ORGAN"]
 
@@ -213,6 +213,9 @@ class Database:
                     "id": row["id"],
                     "symbol": row["symbol"],
                     "ensemblId": row["ensembl_id"],
+                    # Same idea as a cell line's databaseUrl: the gene's entry
+                    # in the resource this data comes from, one click away.
+                    "hpaUrl": proteinatlas_url(row["symbol"], row["ensembl_id"]),
                 }
                 if row["symbol_uc"]:
                     by_key.setdefault(row["symbol_uc"], entry)

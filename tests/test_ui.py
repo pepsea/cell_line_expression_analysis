@@ -491,6 +491,47 @@ class UiTests(unittest.TestCase):
         self.page.wait_for_timeout(600)
         self.assertEqual(self.page.evaluate("() => groupBoundaryRows()"), [])
 
+    def test_clicking_a_gene_opens_it_in_hpa(self):
+        """The heatmap's gene band links out to the Human Protein Atlas, the
+        way the cell line names link out to Cellosaurus."""
+        self.run_genes("ALB, KLK3, PTPRC")
+        opened = []
+        self.page.expose_function("recordOpen", lambda url: opened.append(url))
+        self.page.evaluate("() => { window.open = (u) => { recordOpen(u); return null; }; }")
+
+        geometry = self.page.evaluate(
+            """() => {
+              const v = document.getElementById('hmViewport').getBoundingClientRect();
+              return {x: v.left + HM.gutter + HM.cw / 2, y: v.top + HM.band / 2,
+                      url: state.result.genes[0].hpaUrl, symbol: state.result.genes[0].symbol};
+            }"""
+        )
+        self.page.mouse.click(geometry["x"], geometry["y"])
+        self.page.wait_for_timeout(300)
+        self.assertEqual(opened, [geometry["url"]])
+        self.assertIn("proteinatlas.org", geometry["url"])
+        self.assertIn(geometry["symbol"], geometry["url"])
+
+    def test_the_table_header_links_out_without_losing_its_sort(self):
+        """The header itself sorts, so the link out has to be a separate
+        target - otherwise sorting by a gene would navigate away."""
+        self.run_genes("ALB, KLK3, PTPRC")
+        self.page.click("#tabTable")
+        self.page.wait_for_function(
+            "() => document.getElementById('tableNotice').hidden", timeout=15000
+        )
+        links = self.page.eval_on_selector_all(
+            "#matrixTable thead th .th-link", "els => els.map(e => e.href)"
+        )
+        self.assertEqual(len(links), 3)
+        self.assertTrue(all("proteinatlas.org" in href for href in links), links)
+
+        before = self.page.evaluate("() => state.sort")
+        self.page.click("#matrixTable thead th:nth-child(5)")
+        self.page.wait_for_timeout(400)
+        self.assertNotEqual(self.page.evaluate("() => state.sort"), before)
+        self.assertTrue(self.page.url.endswith("/") or "127.0.0.1" in self.page.url)
+
     def test_the_table_shows_every_matching_cell_line(self):
         """It used to stop at 500 rows, so cell lines went missing from the
         table depending on the sort order."""

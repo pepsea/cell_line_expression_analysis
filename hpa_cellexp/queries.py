@@ -7,7 +7,7 @@ import sqlite3
 import threading
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from .reference import cellosaurus_url
+from .reference import cellosaurus_url, label_ja, name_key
 
 __all__ = ["Database", "DatabaseMissing"]
 
@@ -82,7 +82,11 @@ class Database:
                 "SELECT {0} AS value, COUNT(*) AS n FROM cell_lines "
                 "WHERE {0} IS NOT NULL AND {0} != '' GROUP BY {0} ORDER BY n DESC, value".format(column)
             )
-            return [{"value": r["value"], "count": r["n"]} for r in rows]
+            # `labelJa` is display/search only - `value` stays the filter key.
+            return [
+                {"value": r["value"], "count": r["n"], "labelJa": label_ja(r["value"])}
+                for r in rows
+            ]
 
         unassigned = self._query(
             "SELECT COUNT(*) AS n FROM cell_lines WHERE organ IS NULL OR organ = ''"
@@ -195,8 +199,16 @@ class Database:
                 clauses.append("name_uc IN ({})".format(",".join("?" * len(uppers))))
                 params.extend(uppers)
         if name_query and name_query.strip():
-            clauses.append("name_uc LIKE ?")
-            params.append("%" + name_query.strip().upper().replace("%", "") + "%")
+            raw = name_query.strip().upper().replace("%", "").replace("_", "")
+            key = name_key(name_query)
+            # Match the literal name and the punctuation-stripped key, so both
+            # "HEK 293" and "hek293" find the same cell line.
+            if key:
+                clauses.append("(name_uc LIKE ? OR name_key LIKE ?)")
+                params.extend(["%" + raw + "%", "%" + key + "%"])
+            else:
+                clauses.append("name_uc LIKE ?")
+                params.append("%" + raw + "%")
 
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         return where, params

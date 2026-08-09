@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS cell_lines (
     id             INTEGER PRIMARY KEY,
     name           TEXT UNIQUE,
     name_uc        TEXT,
+    -- Upper-cased, punctuation stripped: lets "hek293" match "HEK 293".
+    name_key       TEXT,
     organ          TEXT,   -- 由来臓器 (normalised, e.g. "Lung")
     tissue         TEXT,   -- finer-grained origin as reported by the source file
     disease        TEXT,   -- e.g. "Lung adenocarcinoma"
@@ -47,7 +49,8 @@ CREATE TABLE IF NOT EXISTS cell_lines (
 
 CREATE INDEX IF NOT EXISTS idx_cell_lines_organ   ON cell_lines (organ);
 CREATE INDEX IF NOT EXISTS idx_cell_lines_species ON cell_lines (species);
-CREATE INDEX IF NOT EXISTS idx_cell_lines_name_uc ON cell_lines (name_uc);
+CREATE INDEX IF NOT EXISTS idx_cell_lines_name_uc  ON cell_lines (name_uc);
+CREATE INDEX IF NOT EXISTS idx_cell_lines_name_key ON cell_lines (name_key);
 
 CREATE TABLE IF NOT EXISTS expression (
     gene_id      INTEGER NOT NULL,

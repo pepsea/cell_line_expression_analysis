@@ -23,6 +23,8 @@ const state = {
   scale: 'global',
   hover: null,
   maxima: null,      // memoised scaleMaxima(); invalidated when the result changes
+  groups: null,      // memoised organGroups(); invalidated when the row order changes
+  organJa: {},       // {"Lung": "肺"} - display labels for the heatmap gutter
   tableDirty: true,  // the table view is built lazily - it is the expensive one
 };
 
@@ -64,7 +66,7 @@ function isDarkMode() {
  * dark one.  Same hue, same validated steps - the direction is what the
  * surface selects, not a filter or an automatic inversion of the colours.
  */
-function rampColor(t, dark) {
+function rampRgb(t, dark) {
   const isDark = dark === undefined ? isDarkMode() : dark;
   let clamped = Math.max(0, Math.min(1, t));
   if (isDark) clamped = 1 - clamped;
@@ -72,8 +74,26 @@ function rampColor(t, dark) {
   const i = Math.floor(pos);
   const j = Math.min(i + 1, RAMP.length - 1);
   const f = pos - i;
-  const c = [0, 1, 2].map((k) => Math.round(RAMP[i][k] + (RAMP[j][k] - RAMP[i][k]) * f));
+  return [0, 1, 2].map((k) => Math.round(RAMP[i][k] + (RAMP[j][k] - RAMP[i][k]) * f));
+}
+
+function rampColor(t, dark) {
+  const c = rampRgb(t, dark);
   return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+
+/** Ink for a value printed on top of a filled cell.
+ *
+ * Picked from the fill's own relative luminance rather than from a position on
+ * the ramp, so the mid-tones - where neither black nor white is comfortable -
+ * still get whichever of the two actually has more contrast. */
+function inkOn(rgb) {
+  const channel = (v) => {
+    const x = v / 255;
+    return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+  };
+  const luminance = 0.2126 * channel(rgb[0]) + 0.7152 * channel(rgb[1]) + 0.0722 * channel(rgb[2]);
+  return luminance > 0.42 ? '#0b0b0b' : '#ffffff';
 }
 
 /** log1p-normalised position of `value` on a scale topping out at `max`. */
@@ -113,6 +133,8 @@ async function init() {
     `${meta.release} · ${meta.geneCount.toLocaleString()} 遺伝子 × ${meta.cellLineCount.toLocaleString()} 細胞株`;
   if (meta.isDemo) $('demoBanner').classList.add('on');
 
+  meta.facets.organs.forEach((o) => { if (o.labelJa) state.organJa[o.value] = o.labelJa; });
+
   buildMetricRadios(meta.availableMetrics);
   buildFacet('speciesList', meta.facets.species, 'species', { preselectAll: true });
   buildFacet('organList', meta.facets.organs, 'organs');
@@ -122,7 +144,7 @@ async function init() {
   $('diseaseSearch').addEventListener('input', (e) => filterFacet('diseaseList', e.target.value));
   $('cellQuery').addEventListener('input', debounce((e) => {
     state.cellQuery = e.target.value;
-    refreshMatchCount();
+    filtersChanged();
   }, 250));
 
   document.querySelectorAll('.facet-actions button').forEach((button) => {
@@ -163,7 +185,10 @@ function buildMetricRadios(metrics) {
     input.value = metric;
     input.checked = index === 0;
     if (index === 0) state.metric = metric;
-    input.addEventListener('change', () => { state.metric = metric; });
+    input.addEventListener('change', () => {
+      state.metric = metric;
+      if (state.result) rerunFromFilters();
+    });
     const span = document.createElement('span');
     span.textContent = labels[metric] || metric;
     label.append(input, span);
@@ -178,10 +203,12 @@ function buildFacet(containerId, values, key, options = {}) {
     container.innerHTML = '<p class="hint" style="padding:6px">該当する情報がありません</p>';
     return;
   }
-  values.forEach(({ value, count }) => {
+  values.forEach(({ value, count, labelJa }) => {
     const item = document.createElement('label');
     item.className = 'facet-item';
-    item.dataset.value = value.toLowerCase();
+    // Searchable in either language: the English value is the filter key, the
+    // Japanese label is what most users here will actually type.
+    item.dataset.value = [value, labelJa].filter(Boolean).join(' ').toLowerCase();
 
     const input = document.createElement('input');
     input.type = 'checkbox';
@@ -195,13 +222,21 @@ function buildFacet(containerId, values, key, options = {}) {
     input.addEventListener('change', () => {
       if (input.checked) state.selected[key].add(value);
       else state.selected[key].delete(value);
-      refreshMatchCount();
+      filtersChanged();
     });
 
     const name = document.createElement('span');
     name.className = 'name';
-    name.textContent = value;
-    name.title = value;
+    if (labelJa) {
+      name.textContent = labelJa;
+      const original = document.createElement('span');
+      original.className = 'name-en';
+      original.textContent = value;
+      name.append(' ', original);
+    } else {
+      name.textContent = value;
+    }
+    name.title = labelJa ? `${labelJa} (${value})` : value;
 
     const badge = document.createElement('span');
     badge.className = 'count';
@@ -229,7 +264,7 @@ function bulkFacet(facet, action) {
     if (input.checked) state.selected[key].add(input.value);
     else state.selected[key].delete(input.value);
   });
-  refreshMatchCount();
+  filtersChanged();
 }
 
 function currentFilters() {
@@ -240,6 +275,21 @@ function currentFilters() {
     cellLineQuery: state.cellQuery || null,
   };
 }
+
+/** Called whenever a cell line filter changes.
+ *
+ * Updating only the match count made the filters look broken: the number moved
+ * but the chart kept showing the previous selection until you pressed the run
+ * button again.  Once a result is on screen the filters re-run it.
+ */
+function filtersChanged() {
+  refreshMatchCount();
+  if (state.result) rerunFromFilters();
+}
+
+const rerunFromFilters = debounce(() => {
+  if (state.result && geneTokens().length) runAnalysis({ keepScroll: true });
+}, 350);
 
 const refreshMatchCount = debounce(async () => {
   const filters = currentFilters();
@@ -300,13 +350,20 @@ function requestBody() {
   return { genes: geneTokens(), metric: state.metric, ...currentFilters() };
 }
 
-async function runAnalysis() {
+async function runAnalysis(options = {}) {
   const tokens = geneTokens();
   if (!tokens.length) return;
 
   $('runButton').disabled = true;
-  showState('placeholder', '解析中…');
-  $('hmViewport').hidden = true;
+  // A live re-run driven by a filter change leaves the current chart on screen
+  // rather than flashing the placeholder, so adjusting filters feels like
+  // filtering rather than like re-running.
+  const keepScroll = Boolean(options.keepScroll) && Boolean(state.result);
+  const scrollTop = keepScroll ? $('hmViewport').scrollTop : 0;
+  if (!keepScroll) {
+    showState('placeholder', '解析中…');
+    $('hmViewport').hidden = true;
+  }
 
   try {
     const data = await fetchJSON('/api/expression', {
@@ -316,7 +373,8 @@ async function runAnalysis() {
     });
     state.result = data;
     state.maxima = null;
-    state.sortGene = 0;
+    state.groups = null;
+    if (!keepScroll) state.sortGene = 0;
     saveToHash();
     renderGeneChipsWithMatches(data);
     populateSortGene(data);
@@ -337,6 +395,7 @@ async function runAnalysis() {
     }
 
     applySort();
+    if (keepScroll) $('hmViewport').scrollTop = scrollTop;
     $('downloadButton').disabled = false;
   } catch (err) {
     showState('placeholder', escapeHtml(err.message), true);
@@ -412,6 +471,7 @@ function applySort() {
   }
 
   state.view = order;
+  state.groups = null;
   state.tableDirty = true;
   populateSortGene(data);
   renderLegend();
@@ -427,7 +487,30 @@ function applySort() {
 // heatmap
 // ---------------------------------------------------------------------------
 
-const HM = { gutter: 150, band: 132, cw: 22, ch: 24 };
+/* Heatmap geometry.
+ *
+ * Orientation: cell lines are ROWS, genes are COLUMNS.  A run typically has a
+ * handful of genes against up to ~1,200 cell lines, so the tall layout is the
+ * one that fits: cell line names sit in the left gutter where they read
+ * horizontally, and the sheet scrolls vertically.
+ *
+ *   organCol   nameCol            cw   cw   cw
+ *  |---------|----------|band| [gene][gene][gene]
+ *  | Liver   |  HEP G2  |     |  .    .     .     ch
+ *  |         |  HUH-7   |     |  .    .     .     ch
+ *  | Lung    |  A-549   |     |  .    .     .     ch
+ */
+const HM = {
+  organCol: 0,   // organ group label column (only when sorted by organ)
+  nameCol: 158,  // cell line name column
+  gutter: 158,   // organCol + nameCol
+  band: 46,      // gene label band across the top
+  cw: 64,        // width of one gene column
+  ch: 20,        // height of one cell line row
+  rotated: false,
+};
+
+const ORGAN_COL_WIDTH = 104;
 
 /** Row and global maxima, memoised - paint() runs on every mousemove and
  *  scanning 200 x 1,200 values each time would make hovering feel sticky. */
@@ -449,31 +532,59 @@ function scaleMaxima() {
   return globalMax;
 }
 
+/** Contiguous runs of equal organ over the current row order. */
+function organGroups() {
+  if (state.groups) return state.groups;
+  const data = state.result;
+  const groups = [];
+  state.view.forEach((cellIndex, row) => {
+    const organ = data.cellLines[cellIndex].organ || null;
+    const last = groups[groups.length - 1];
+    if (last && last.organ === organ) last.end = row;
+    else groups.push({ organ, start: row, end: row });
+  });
+  state.groups = groups;
+  return groups;
+}
+
+function showOrganColumn() {
+  return state.sort === 'organ' && organGroups().some((g) => g.organ);
+}
+
 function renderHeatmap() {
   const data = state.result;
   const viewport = $('hmViewport');
   const canvas = $('hmCanvas');
   if (!data || !data.genes.length || !state.view.length) return;
 
-  const rows = data.genes.length;
-  const cols = state.view.length;
+  const rows = state.view.length;      // cell lines
+  const cols = data.genes.length;      // genes
 
-  const available = Math.max(viewport.clientWidth - HM.gutter, 120);
-  HM.cw = Math.max(8, Math.min(30, Math.floor(available / cols)));
+  HM.organCol = showOrganColumn() ? ORGAN_COL_WIDTH : 0;
+  HM.gutter = HM.organCol + HM.nameCol;
 
   // The viewport's only in-flow child is the sticky canvas, so its height has
   // to be set explicitly - otherwise element and canvas size each other in a
   // circle and collapse to the CSS min-height.
-  const maxHeight = Math.max(300, window.innerHeight - 300);
-  HM.ch = Math.max(15, Math.min(30, Math.floor((maxHeight - HM.band) / Math.max(rows, 1))));
+  const maxHeight = Math.max(320, window.innerHeight - 280);
+
+  // One readable line per cell line; grow the rows when there are only a few.
+  HM.ch = Math.max(16, Math.min(30, Math.floor((maxHeight - 46) / rows)));
+
+  const available = Math.max(viewport.clientWidth - HM.gutter - 2, 160);
+  HM.cw = Math.max(26, Math.min(132, Math.floor(available / cols)));
+  // Gene symbols are short; keep them upright while the columns are wide
+  // enough, and only fall back to rotated labels when they are not.
+  HM.rotated = HM.cw < 56;
+  HM.band = HM.rotated ? 116 : 46;
 
   const contentW = HM.gutter + cols * HM.cw;
   const contentH = HM.band + rows * HM.ch;
   $('hmSizer').style.width = contentW + 'px';
   $('hmSizer').style.height = contentH + 'px';
 
-  const scrollbar = contentW > viewport.clientWidth ? 14 : 0;
-  viewport.style.height = Math.min(contentH + scrollbar, maxHeight) + 'px';
+  const scrollbarH = contentW > viewport.clientWidth ? 14 : 0;
+  viewport.style.height = Math.min(contentH + scrollbarH, maxHeight) + 'px';
 
   const vw = Math.min(viewport.clientWidth, contentW);
   const vh = Math.min(viewport.clientHeight, contentH);
@@ -490,13 +601,15 @@ function renderHeatmap() {
 
 function paint(ctx, vw, vh) {
   const data = state.result;
-  const rows = data.genes.length;
-  const cols = state.view.length;
+  const rows = state.view.length;
+  const cols = data.genes.length;
   const viewport = $('hmViewport');
   const sx = viewport.scrollLeft;
   const sy = viewport.scrollTop;
 
+  const font = cssVar('--font') || 'system-ui, sans-serif';
   const surface = cssVar('--surface');
+  const sunk = cssVar('--surface-sunk');
   const ink = cssVar('--ink');
   const ink2 = cssVar('--ink-2');
   const muted = cssVar('--ink-muted');
@@ -510,141 +623,138 @@ function paint(ctx, vw, vh) {
 
   const dark = isDarkMode();
   const maxima = scaleMaxima();
-  const first = Math.max(0, Math.floor(sx / HM.cw));
-  const last = Math.min(cols - 1, Math.ceil((sx + vw - HM.gutter) / HM.cw));
   const firstRow = Math.max(0, Math.floor(sy / HM.ch));
   const lastRow = Math.min(rows - 1, Math.ceil((sy + vh - HM.band) / HM.ch));
+  const firstCol = Math.max(0, Math.floor(sx / HM.cw));
+  const lastCol = Math.min(cols - 1, Math.ceil((sx + vw - HM.gutter) / HM.cw));
 
-  // --- cells --------------------------------------------------------------
+  const rowY = (r) => HM.band + r * HM.ch - sy;
+  const colX = (c) => HM.gutter + c * HM.cw - sx;
+
+  // --- cells ---------------------------------------------------------------
   ctx.save();
   ctx.beginPath();
   ctx.rect(HM.gutter, HM.band, vw - HM.gutter, vh - HM.band);
   ctx.clip();
 
   for (let r = firstRow; r <= lastRow; r += 1) {
-    const y = HM.band + r * HM.ch - sy;
-    const rowValues = data.values[r];
-    const max = state.scale === 'row' ? maxima.rows[r] : maxima.global;
-    for (let c = first; c <= last; c += 1) {
-      const x = HM.gutter + c * HM.cw - sx;
-      const v = rowValues[state.view[c]];
+    const y = rowY(r);
+    const cellIndex = state.view[r];
+    for (let c = firstCol; c <= lastCol; c += 1) {
+      const v = data.values[c][cellIndex];
+      const max = state.scale === 'row' ? maxima.rows[c] : maxima.global;
       ctx.fillStyle = v === null || v === undefined
         ? nodata
         : (v === 0 ? zero : rampColor(scalePosition(v, max), dark));
       // 1px surface gap between fills keeps adjacent cells legible.
-      ctx.fillRect(x, y, HM.cw - 1, HM.ch - 1);
+      ctx.fillRect(colX(c), y, HM.cw - 1, HM.ch - 1);
     }
   }
 
-  // organ group separators, carried through the plot so the grouping the sort
-  // implies is actually visible in the marks
-  if (state.sort === 'organ') {
+  // Value labels, printed straight into the cells once they are roomy enough.
+  if (HM.cw >= 52 && HM.ch >= 15) {
+    ctx.font = `11px ${font}`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let r = firstRow; r <= lastRow; r += 1) {
+      const cellIndex = state.view[r];
+      const y = rowY(r) + (HM.ch - 1) / 2;
+      for (let c = firstCol; c <= lastCol; c += 1) {
+        const v = data.values[c][cellIndex];
+        if (v === null || v === undefined) continue;
+        if (v === 0) {
+          ctx.fillStyle = muted;
+        } else {
+          const max = state.scale === 'row' ? maxima.rows[c] : maxima.global;
+          ctx.fillStyle = inkOn(rampRgb(scalePosition(v, max), dark));
+        }
+        ctx.fillText(formatValue(v), colX(c) + HM.cw - 7, y);
+      }
+    }
+  }
+
+  // organ group separators carried through the plot
+  if (HM.organCol) {
     ctx.strokeStyle = axis;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let c = Math.max(first, 1); c <= last; c += 1) {
-      if (data.cellLines[state.view[c]].organ !== data.cellLines[state.view[c - 1]].organ) {
-        const x = HM.gutter + c * HM.cw - sx - 0.5;
-        ctx.moveTo(x, HM.band);
-        ctx.lineTo(x, vh);
-      }
-    }
+    organGroups().forEach((group) => {
+      if (group.start === 0 || group.start < firstRow || group.start > lastRow + 1) return;
+      const y = rowY(group.start) - 0.5;
+      ctx.moveTo(HM.gutter, y);
+      ctx.lineTo(vw, y);
+    });
     ctx.stroke();
   }
 
-  // hover ring (2px surface ring + ink outline, per mark spec)
+  // hover ring
   if (state.hover && state.hover.kind === 'cell') {
     const { row, col } = state.hover;
-    if (row >= firstRow && row <= lastRow && col >= first && col <= last) {
-      const x = HM.gutter + col * HM.cw - sx;
-      const y = HM.band + row * HM.ch - sy;
+    if (row >= firstRow && row <= lastRow && col >= firstCol && col <= lastCol) {
       ctx.lineWidth = 2;
       ctx.strokeStyle = ink;
-      ctx.strokeRect(x + 0.5, y + 0.5, HM.cw - 2, HM.ch - 2);
+      ctx.strokeRect(colX(col) + 0.5, rowY(row) + 0.5, HM.cw - 2, HM.ch - 2);
     }
   }
   ctx.restore();
 
-  // --- column labels (cell lines) -----------------------------------------
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(HM.gutter, 0, vw - HM.gutter, HM.band);
-  ctx.clip();
-  ctx.fillStyle = surface;
-  ctx.fillRect(HM.gutter, 0, vw - HM.gutter, HM.band);
-
-  const labelSize = Math.max(9, Math.min(12, HM.cw));
-  ctx.font = `${labelSize}px ${cssVar('--font') || 'system-ui, sans-serif'}`;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-
-  // Labels are rotated -60 degrees, so the gap between neighbours measured
-  // perpendicular to the text is cw * sin(60 deg).  Below ~11px they collide
-  // into an unreadable smear, so thin them out; the tooltip and the table view
-  // still name every column.
-  const labelStep = Math.max(1, Math.ceil(11 / (HM.cw * 0.866)));
-
-  // Seed from the column just off-screen so scrolling does not paint a
-  // spurious organ boundary at the left edge.
-  let lastOrgan = first > 0 ? data.cellLines[state.view[first - 1]].organ : null;
-  for (let c = first; c <= last; c += 1) {
-    const cell = data.cellLines[state.view[c]];
-    const x = HM.gutter + c * HM.cw - sx;
-
-    // organ boundary rule - a hairline where the organ changes
-    if (state.sort === 'organ' && cell.organ !== lastOrgan) {
-      ctx.strokeStyle = axis;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(x - 0.5, 0);
-      ctx.lineTo(x - 0.5, HM.band);
-      ctx.stroke();
-      lastOrgan = cell.organ;
-    }
-
-    if (c % labelStep === 0) {
-      ctx.save();
-      ctx.translate(x + HM.cw / 2 + 3, HM.band - 6);
-      ctx.rotate(-Math.PI / 3);
-      ctx.fillStyle = ink2;
-      ctx.fillText(truncate(ctx, cell.name, HM.band - 14), 0, 0);
-      ctx.restore();
-    }
-  }
-
-  // The hovered column's label is drawn last, over a surface chip, so it stays
-  // readable even where the labels are thinned out.
-  const hoverCol = state.hover && state.hover.col;
-  if (hoverCol !== null && hoverCol !== undefined && hoverCol >= first && hoverCol <= last) {
-    const label = truncate(ctx, data.cellLines[state.view[hoverCol]].name, HM.band - 14);
-    ctx.save();
-    ctx.translate(HM.gutter + hoverCol * HM.cw - sx + HM.cw / 2 + 3, HM.band - 6);
-    ctx.rotate(-Math.PI / 3);
-    const width = ctx.measureText(label).width;
-    ctx.fillStyle = surface;
-    ctx.fillRect(-3, -labelSize, width + 6, labelSize + 4);
-    ctx.fillStyle = ink;
-    ctx.fillText(label, 0, 0);
-    ctx.restore();
-  }
-  ctx.restore();
-
-  // --- row labels (genes) ---------------------------------------------------
+  // --- left gutter: organ groups + cell line names --------------------------
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, HM.band, HM.gutter, vh - HM.band);
   ctx.clip();
   ctx.fillStyle = surface;
   ctx.fillRect(0, HM.band, HM.gutter, vh - HM.band);
-  ctx.font = `600 ${Math.max(11, Math.min(13, HM.ch - 8))}px ${cssVar('--font') || 'system-ui, sans-serif'}`;
+
+  if (HM.organCol) {
+    ctx.fillStyle = sunk;
+    ctx.fillRect(0, HM.band, HM.organCol, vh - HM.band);
+
+    ctx.font = `600 11px ${font}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.strokeStyle = grid;
+    ctx.lineWidth = 1;
+
+    organGroups().forEach((group) => {
+      if (group.end < firstRow || group.start > lastRow) return;
+      const top = rowY(group.start);
+      const bottom = rowY(group.end + 1);
+      if (group.start > 0) {
+        ctx.beginPath();
+        ctx.moveTo(0, top - 0.5);
+        ctx.lineTo(HM.gutter, top - 0.5);
+        ctx.stroke();
+      }
+      if (!group.organ) return;
+      const label = state.organJa[group.organ] || group.organ;
+      // Keep the group label in view while its rows are on screen.
+      const y = Math.min(
+        Math.max((top + bottom) / 2, Math.max(top, HM.band) + 9),
+        Math.min(bottom, vh) - 9,
+      );
+      ctx.fillStyle = muted;
+      ctx.fillText(truncate(ctx, label, HM.organCol - 18), 12, y);
+    });
+  }
+
+  ctx.font = `${Math.max(11, Math.min(13, HM.ch - 7))}px ${font}`;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
+  const nameRight = HM.gutter - 12;
   for (let r = firstRow; r <= lastRow; r += 1) {
-    const y = HM.band + r * HM.ch - sy + HM.ch / 2;
-    ctx.fillStyle = state.hover && state.hover.row === r ? ink : ink2;
-    ctx.fillText(truncate(ctx, data.genes[r].symbol, HM.gutter - 16), HM.gutter - 10, y);
+    const cell = data.cellLines[state.view[r]];
+    const hovered = state.hover && state.hover.row === r;
+    const y = rowY(r) + (HM.ch - 1) / 2;
+    if (hovered) {
+      ctx.fillStyle = sunk;
+      ctx.fillRect(HM.organCol, rowY(r), HM.nameCol, HM.ch - 1);
+    }
+    ctx.fillStyle = hovered ? ink : ink2;
+    ctx.fillText(truncate(ctx, cell.name, HM.nameCol - 20), nameRight, y);
   }
-  ctx.strokeStyle = grid;
+
+  ctx.strokeStyle = axis;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(HM.gutter - 0.5, HM.band);
@@ -652,14 +762,52 @@ function paint(ctx, vw, vh) {
   ctx.stroke();
   ctx.restore();
 
-  // --- corner ---------------------------------------------------------------
+  // --- top band: gene labels -------------------------------------------------
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(HM.gutter, 0, vw - HM.gutter, HM.band);
+  ctx.clip();
+  ctx.fillStyle = surface;
+  ctx.fillRect(HM.gutter, 0, vw - HM.gutter, HM.band);
+  ctx.font = `600 12px ${font}`;
+
+  for (let c = firstCol; c <= lastCol; c += 1) {
+    const gene = data.genes[c];
+    const hovered = state.hover && state.hover.col === c;
+    ctx.fillStyle = hovered ? ink : ink2;
+    if (HM.rotated) {
+      ctx.save();
+      ctx.translate(colX(c) + HM.cw / 2 + 4, HM.band - 10);
+      ctx.rotate(-Math.PI / 3);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(truncate(ctx, gene.symbol, HM.band - 18), 0, 0);
+      ctx.restore();
+    } else {
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(truncate(ctx, gene.symbol, HM.cw - 8), colX(c) + (HM.cw - 1) / 2, HM.band - 16);
+    }
+  }
+  ctx.strokeStyle = axis;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(HM.gutter, HM.band - 0.5);
+  ctx.lineTo(vw, HM.band - 0.5);
+  ctx.stroke();
+  ctx.restore();
+
+  // --- corner ----------------------------------------------------------------
   ctx.fillStyle = surface;
   ctx.fillRect(0, 0, HM.gutter, HM.band);
   ctx.fillStyle = muted;
-  ctx.font = `11px ${cssVar('--font') || 'system-ui, sans-serif'}`;
+  ctx.font = `11px ${font}`;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'bottom';
-  ctx.fillText('遺伝子 ＼ 細胞株', HM.gutter - 10, HM.band - 8);
+  ctx.fillText('細胞株 ＼ 遺伝子', HM.gutter - 12, HM.band - 14);
+  ctx.fillStyle = muted;
+  ctx.font = `10px ${font}`;
+  ctx.fillText(state.result.metric, HM.gutter - 12, HM.band - 3);
 }
 
 function truncate(ctx, text, maxWidth) {
@@ -697,7 +845,7 @@ function setupHeatmapEvents() {
     const hit = hitTest(event);
     const previous = state.hover;
     state.hover = hit;
-    viewport.style.cursor = hit && (hit.kind === 'header' || hit.kind === 'cell') ? 'pointer' : 'default';
+    viewport.style.cursor = hit && hit.row !== undefined ? 'pointer' : 'default';
     if (!hit || hit.kind === 'corner') {
       tooltip.style.display = 'none';
     } else {
@@ -716,9 +864,10 @@ function setupHeatmapEvents() {
 
   viewport.addEventListener('click', (event) => {
     const hit = hitTest(event);
-    if (!hit || (hit.kind !== 'header' && hit.kind !== 'cell')) return;
-    const cell = state.result.cellLines[state.view[hit.col]];
-    window.open(cell.databaseUrl, '_blank', 'noopener');
+    // Any hit that identifies a cell line - its name in the gutter or a value
+    // cell in its row - opens that cell line in Cellosaurus.
+    if (!hit || hit.row === undefined) return;
+    window.open(state.result.cellLines[state.view[hit.row]].databaseUrl, '_blank', 'noopener');
   });
 }
 
@@ -729,15 +878,15 @@ function hitTest(event) {
   const rect = viewport.getBoundingClientRect();
   const x = event.clientX - rect.left;
   const y = event.clientY - rect.top;
-  const col = Math.floor((x - HM.gutter + viewport.scrollLeft) / HM.cw);
   const row = Math.floor((y - HM.band + viewport.scrollTop) / HM.ch);
-  const inCols = col >= 0 && col < state.view.length;
-  const inRows = row >= 0 && row < data.genes.length;
+  const col = Math.floor((x - HM.gutter + viewport.scrollLeft) / HM.cw);
+  const inRows = row >= 0 && row < state.view.length;
+  const inCols = col >= 0 && col < data.genes.length;
 
-  if (x < HM.gutter && y < HM.band) return { kind: 'corner' };
-  if (x < HM.gutter) return inRows ? { kind: 'gene', row } : null;
-  if (y < HM.band) return inCols ? { kind: 'header', col } : null;
-  if (inCols && inRows) return { kind: 'cell', row, col };
+  if (y < HM.band && x < HM.gutter) return { kind: 'corner' };
+  if (y < HM.band) return inCols ? { kind: 'gene', col } : null;
+  if (x < HM.gutter) return inRows ? { kind: 'cellLine', row } : null;
+  if (inRows && inCols) return { kind: 'cell', row, col };
   return null;
 }
 
@@ -748,18 +897,18 @@ function renderTooltip(tooltip, hit, event) {
 
   let html = '';
   if (hit.kind === 'gene') {
-    const gene = data.genes[hit.row];
+    const gene = data.genes[hit.col];
     html = `<div class="t-title">${escapeHtml(gene.symbol)}</div>` +
       (gene.ensemblId ? `<div class="t-row">${escapeHtml(gene.ensemblId)}</div>` : '');
   } else {
-    const cell = data.cellLines[state.view[hit.col]];
+    const cell = data.cellLines[state.view[hit.row]];
     html = `<div class="t-title">${escapeHtml(cell.name)}</div>`;
     if (cell.organ) html += `<div class="t-row">由来臓器: ${escapeHtml(cell.organ)}</div>`;
     if (cell.disease) html += `<div class="t-row">疾患: ${escapeHtml(cell.disease)}</div>`;
     if (cell.species) html += `<div class="t-row">種: ${escapeHtml(cell.species)}</div>`;
     if (hit.kind === 'cell') {
-      const gene = data.genes[hit.row];
-      const value = data.values[hit.row][state.view[hit.col]];
+      const gene = data.genes[hit.col];
+      const value = data.values[hit.col][state.view[hit.row]];
       html += `<div class="t-row" style="margin-top:4px">${escapeHtml(gene.symbol)}: ` +
         `<span class="t-value">${formatValue(value)}</span> ${escapeHtml(data.metric)}</div>`;
     }
@@ -771,9 +920,11 @@ function renderTooltip(tooltip, hit, event) {
   const localX = event.clientX - rect.left + viewport.scrollLeft;
   const localY = event.clientY - rect.top + viewport.scrollTop;
   const width = tooltip.offsetWidth;
-  const flip = (event.clientX - rect.left) + width + 28 > viewport.clientWidth;
-  tooltip.style.left = (flip ? localX - width - 14 : localX + 14) + 'px';
-  tooltip.style.top = (localY + 14) + 'px';
+  const height = tooltip.offsetHeight;
+  const flipX = (event.clientX - rect.left) + width + 28 > viewport.clientWidth;
+  const flipY = (event.clientY - rect.top) + height + 28 > viewport.clientHeight;
+  tooltip.style.left = (flipX ? localX - width - 14 : localX + 14) + 'px';
+  tooltip.style.top = (flipY ? localY - height - 14 : localY + 14) + 'px';
 }
 
 function renderLegend() {

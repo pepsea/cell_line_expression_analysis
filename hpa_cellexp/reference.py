@@ -21,6 +21,9 @@ from typing import Dict, List, Optional, Tuple
 _REFERENCE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reference")
 
 __all__ = [
+    "name_key",
+    "labels_ja",
+    "label_ja",
     "tcga_organ_map",
     "organ_from_text",
     "normalise_organ",
@@ -53,6 +56,19 @@ _SPECIES_ALIASES = {
 }
 
 _CVCL_RE = re.compile(r"CVCL[_:]?([0-9A-Z]{4})", re.IGNORECASE)
+_NON_ALNUM_RE = re.compile(r"[^A-Z0-9]+")
+
+
+def name_key(name: Optional[str]) -> str:
+    """Collapse a cell line name to letters and digits only, upper-cased.
+
+    HPA punctuates cell line names inconsistently ("HEK 293", "U-2 OS",
+    "MDA-MB-231"), and nobody types them back the same way.  Matching on this
+    key as well as on the literal name makes "hek293" find "HEK 293".
+    """
+    if not name:
+        return ""
+    return _NON_ALNUM_RE.sub("", name.upper())
 
 
 def _read_tsv(filename: str) -> List[List[str]]:
@@ -76,6 +92,23 @@ def tcga_organ_map() -> Dict[str, str]:
         if len(row) >= 2 and row[0] and row[1]:
             mapping[row[0].strip().upper()] = row[1].strip()
     return mapping
+
+
+@lru_cache(maxsize=1)
+def labels_ja() -> Dict[str, str]:
+    """``{"Lung": "肺", ...}`` for organ and species facet values."""
+    rows = _read_tsv("labels_ja.tsv")
+    mapping: Dict[str, str] = {}
+    for row in rows[1:]:  # skip header
+        if len(row) >= 2 and row[0] and row[1]:
+            mapping[row[0].strip()] = row[1].strip()
+    return mapping
+
+
+def label_ja(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    return labels_ja().get(value.strip())
 
 
 @lru_cache(maxsize=1)

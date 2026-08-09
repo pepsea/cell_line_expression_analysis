@@ -16,6 +16,7 @@ import os
 from typing import Dict, List, Optional, Tuple
 
 from .ingest import IngestReport, connect_for_write
+from .reference import name_key
 
 __all__ = ["build_demo_database"]
 
@@ -168,10 +169,12 @@ def build_demo_database(db_path: str) -> IngestReport:
 
         cursor.executemany(
             "INSERT INTO cell_lines "
-            "(id, name, name_uc, organ, tissue, disease, species, cellosaurus_id, sex, age, source) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "(id, name, name_uc, name_key, organ, tissue, disease, species, "
+            " cellosaurus_id, sex, age, source) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             [
-                (i + 1, name, name.upper(), organ, None, disease, "Homo sapiens", cvcl, None, None, "demo")
+                (i + 1, name, name.upper(), name_key(name), organ, None, disease,
+                 "Homo sapiens", cvcl, None, None, "demo")
                 for i, (name, organ, disease, cvcl) in enumerate(_CELL_LINES)
             ],
         )

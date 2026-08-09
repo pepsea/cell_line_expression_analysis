@@ -91,6 +91,25 @@ class ReferenceTests(unittest.TestCase):
         self.assertEqual(R.organ_from_text(None, "cutaneous melanoma"), "Skin")
         self.assertIsNone(R.organ_from_text("", None))
 
+    def test_name_key_strips_punctuation(self):
+        self.assertEqual(R.name_key("HEP G2"), "HEPG2")
+        self.assertEqual(R.name_key("MDA-MB-231"), "MDAMB231")
+        self.assertEqual(R.name_key("U-266/70"), "U26670")
+        self.assertEqual(R.name_key(None), "")
+
+    def test_japanese_labels(self):
+        self.assertEqual(R.label_ja("Lung"), "肺")
+        self.assertEqual(R.label_ja("Bone marrow"), "骨髄")
+        self.assertEqual(R.label_ja("Homo sapiens"), "ヒト")
+        self.assertIsNone(R.label_ja("Nonexistent organ"))
+
+    def test_every_reference_organ_has_a_japanese_label(self):
+        """A new organ in the keyword table without a label breaks JA search."""
+        organs = set(R.tcga_organ_map().values())
+        organs.update(organ for _, organ in R._organ_keywords())
+        missing = sorted(o for o in organs if not R.label_ja(o))
+        self.assertEqual(missing, [], "organs missing from labels_ja.tsv: {}".format(missing))
+
     def test_species_and_cvcl(self):
         self.assertEqual(R.normalise_species("Human"), "Homo sapiens")
         self.assertEqual(R.normalise_species(None), "Homo sapiens")
@@ -168,6 +187,42 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual({f["value"] for f in facets["organs"]}, {"Liver", "Lung", "Bone marrow"})
         self.assertEqual([f["value"] for f in facets["species"]], ["Homo sapiens"])
         self.assertEqual(facets["organUnassigned"], 0)
+
+    def test_facets_carry_japanese_labels(self):
+        """The facet list has to be searchable in Japanese - HPA values are English."""
+        facets = self.db.facets()
+        organs = {f["value"]: f["labelJa"] for f in facets["organs"]}
+        self.assertEqual(organs["Lung"], "肺")
+        self.assertEqual(organs["Liver"], "肝臓")
+        self.assertEqual(organs["Bone marrow"], "骨髄")
+        self.assertEqual(facets["species"][0]["labelJa"], "ヒト")
+
+    def test_cell_line_search_ignores_punctuation(self):
+        """"hepg2" must find "HEP G2"; "a549" must find "A-549"."""
+        for query, expected in [
+            ("hep g2", "HEP G2"),
+            ("hepg2", "HEP G2"),
+            ("HEPG2", "HEP G2"),
+            ("a549", "A-549"),
+            ("a-549", "A-549"),
+            ("k562", "K-562"),
+        ]:
+            with self.subTest(query=query):
+                rows = self.db.cell_lines(name_query=query)
+                self.assertEqual([r["name"] for r in rows], [expected])
+
+    def test_cell_line_search_still_does_substrings(self):
+        self.assertEqual(
+            sorted(r["name"] for r in self.db.cell_lines(name_query="5")),
+            ["A-549", "K-562"],
+        )
+
+    def test_cell_line_search_combines_with_organ_filter(self):
+        self.assertEqual(self.db.cell_lines(name_query="hepg2", organs=["Lung"]), [])
+        self.assertEqual(
+            [r["name"] for r in self.db.cell_lines(name_query="hepg2", organs=["Liver"])],
+            ["HEP G2"],
+        )
 
 
 class TcgaFallbackTests(unittest.TestCase):

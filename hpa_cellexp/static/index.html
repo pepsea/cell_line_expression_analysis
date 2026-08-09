@@ -53,13 +53,17 @@
     <section class="section">
       <h2>3. 細胞株を絞り込む</h2>
 
+      <label class="hint" for="cellQuery" style="display:block;margin:0 0 6px">細胞株名で検索</label>
+      <input type="search" id="cellQuery" placeholder="例: HeLa, HEK293, NCI-H" aria-label="細胞株名で検索">
+      <p class="hint" style="margin:4px 0 12px">スペースやハイフンは無視されます（<code>hek293</code> → <code>HEK 293</code>）。</p>
+
       <div class="match-count" id="matchCount">対象細胞株: <strong>—</strong></div>
 
       <label class="hint" for="speciesList" style="display:block;margin:0 0 6px">種 (species)</label>
       <div class="facet-list" id="speciesList" style="max-height:110px"></div>
 
       <label class="hint" for="organSearch" style="display:block;margin:14px 0 6px">由来臓器 (organ)</label>
-      <input class="facet-search" type="search" id="organSearch" placeholder="臓器名で検索…" aria-label="由来臓器を検索">
+      <input class="facet-search" type="search" id="organSearch" placeholder="臓器名で検索（肺 / lung）…" aria-label="由来臓器を検索">
       <div class="facet-list" id="organList"></div>
       <div class="facet-actions">
         <button type="button" data-facet="organ" data-action="all">すべて選択</button>
@@ -72,9 +76,6 @@
       <div class="facet-actions">
         <button type="button" data-facet="disease" data-action="none">すべて解除</button>
       </div>
-
-      <label class="hint" for="cellQuery" style="display:block;margin:14px 0 6px">細胞株名で検索</label>
-      <input type="search" id="cellQuery" placeholder="例: HELA, NCI-H" aria-label="細胞株名で検索">
     </section>
 
     <section class="section">

@@ -1,0 +1,60 @@
+# Japanese labels for facet values.
+#
+# HPA reports organs and species in English, so the facet values stored in the
+# database stay English (they are the filter keys).  These labels are attached
+# to the /api/meta payload purely for display and for searching the facet list
+# in Japanese - typing "肺" has to find "Lung".
+value	ja
+# --- organs ---------------------------------------------------------------
+Adrenal gland	副腎
+Appendix	虫垂
+Bile duct	胆管
+Blood	血液
+Bone	骨
+Bone marrow	骨髄
+Brain	脳
+Breast	乳腺
+Cervix	子宮頸部
+Colon	結腸
+Connective tissue	結合組織
+Embryonic tissue	胚性組織
+Endometrium	子宮内膜
+Esophagus	食道
+Eye	眼
+Gallbladder	胆嚢
+Head and neck	頭頸部
+Heart	心臓
+Kidney	腎臓
+Liver	肝臓
+Lung	肺
+Lymphoid tissue	リンパ組織
+Muscle	筋肉
+Ovary	卵巣
+Pancreas	膵臓
+Parathyroid gland	副甲状腺
+Peripheral nervous system	末梢神経系
+Peritoneum	腹膜
+Pituitary gland	下垂体
+Placenta	胎盤
+Pleura	胸膜
+Prostate	前立腺
+Rectum	直腸
+Skin	皮膚
+Small intestine	小腸
+Soft tissue	軟部組織
+Spleen	脾臓
+Stomach	胃
+Testis	精巣
+Thymus	胸腺
+Thyroid gland	甲状腺
+Urinary bladder	膀胱
+Uterus	子宮
+Vasculature	血管
+Vulva	外陰部
+# --- species --------------------------------------------------------------
+Homo sapiens	ヒト
+Mus musculus	マウス
+Rattus norvegicus	ラット
+Canis lupus familiaris	イヌ
+Cricetulus griseus	チャイニーズハムスター
+Chlorocebus sabaeus	ミドリザル

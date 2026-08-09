@@ -410,6 +410,7 @@ def build_database(
                     cid,
                     name,
                     name.upper(),
+                    R.name_key(name),
                     organ,
                     record.tissue,
                     record.disease,
@@ -422,8 +423,9 @@ def build_database(
             )
         cursor.executemany(
             "INSERT INTO cell_lines "
-            "(id, name, name_uc, organ, tissue, disease, species, cellosaurus_id, sex, age, source) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "(id, name, name_uc, name_key, organ, tissue, disease, species, "
+            " cellosaurus_id, sex, age, source) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             cell_rows,
         )
         report.cell_lines = len(cell_rows)

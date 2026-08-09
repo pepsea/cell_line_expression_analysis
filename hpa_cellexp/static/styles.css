@@ -299,6 +299,7 @@ textarea:focus, input:focus, select:focus {
 .facet-item input { margin: 0; accent-color: var(--accent); }
 .facet-item .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .facet-item .count { color: var(--ink-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.facet-item .name-en { color: var(--ink-muted); font-size: 11px; }
 
 .facet-actions {
   display: flex; gap: 10px; margin-top: 6px;
@@ -408,7 +409,9 @@ textarea:focus, input:focus, select:focus {
 .hm-viewport {
   position: relative;
   overflow: auto;
-  min-height: 200px;   /* real height is set from JS - see renderHeatmap() */
+  /* Height is set from JS (see renderHeatmap) and tracks the row count, so a
+     one-row result is not padded out with empty surface. */
+  min-height: 0;
   background: var(--surface);
   border-radius: 0 0 var(--radius) var(--radius);
 }

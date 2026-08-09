@@ -1,7 +1,10 @@
 # 常時稼働用の構成 / always-on deployment.
 #
 #   1. データベースを作る（初回のみ、データ更新時も）
-#      HPA_SOURCE_DIR=/path/to/hpa-files docker compose run --rm build \
+#      --build を付けるのは、compose がコード変更を検知してイメージを作り直して
+#      くれないため。古いイメージのまま新しいオプションを渡すと
+#      "unrecognized arguments" になります。
+#      HPA_SOURCE_DIR=/path/to/hpa-files docker compose run --rm --build build \
 #        --expression  /source/rna_celline.tsv.zip \
 #        --metadata    /source/cell_line_analysis_data.tsv.zip \
 #        --tcga        /source/rna_cell_line_tcga_comparison.tsv.zip \

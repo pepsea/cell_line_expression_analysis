@@ -45,7 +45,8 @@ python3 -m hpa_cellexp serve     # http://127.0.0.1:8000
 ```bash
 # 1) HPA のファイルを置いたディレクトリを指定して、DB を作る（初回のみ）
 export HPA_SOURCE_DIR=/path/to/hpa-files
-docker compose run --rm build \
+# --build を付けると、コード更新後でも必ず最新のイメージが使われます
+docker compose run --rm --build build \
   --expression  /source/rna_celline.tsv.zip \
   --metadata    /source/cell_line_analysis_data.tsv.zip \
   --tcga        /source/rna_cell_line_tcga_comparison.tsv.zip \
@@ -134,6 +135,8 @@ python3 -m hpa_cellexp serve --host 0.0.0.0 --port 9000
 docker compose logs -f web                       # ログ
 docker compose ps                                # 状態（healthy かどうか）
 docker compose up -d --build                     # コード更新後の再デプロイ
+docker compose run --rm --build build ...        # 取り込みも --build 付きが安全
+docker compose run --rm build --version          # 動いているバージョンを確認
 docker compose run --rm demo                     # デモ DB に差し替え
 docker compose run --rm organs --grep caco       # 由来臓器の判定根拠を確認
 docker compose run --rm inspect /source/xxx.zip  # 入力ファイルの列を確認
@@ -472,6 +475,33 @@ pip install playwright && playwright install chromium
 ---
 
 ## トラブルシューティング
+
+### `error: unrecognized arguments: --cellosaurus ...`
+
+**動かしているコードが古いだけです。** オプションが増えたのに、古いチェックアウト
+または古い Docker イメージが使われています。まず今動いているものを確認します:
+
+```bash
+python3 -m hpa_cellexp --version          # 例: hpa_cellexp 1.2.0 (schema v3) from ...
+python3 -m hpa_cellexp build --help       # 使えるオプション一覧
+```
+
+- **Docker の場合**: `docker compose run` / `up` は**コードが変わってもイメージを
+  作り直しません**。既存の `hpa-cellexp:latest` がそのまま使われます。
+
+  ```bash
+  git pull
+  docker compose build                  # ← これが必要
+  docker compose run --rm --build build --expression ... --cellosaurus ...
+  ```
+
+  取り込みコマンドに `--build` を付けておけば、以後この問題は起きません。
+
+- **Docker を使わない場合**: `git pull` してから実行し直してください。
+  仮想環境に `pip install` している場合は入れ直しが必要です。
+
+同じことは他のオプション（`--organ-column` など）でも起こります。
+`--version` の出力がドキュメントより古ければ、まず更新してください。
 
 ### 「データベースの形式が古いため再構築が必要です」と表示される
 

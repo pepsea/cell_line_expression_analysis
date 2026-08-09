@@ -6,7 +6,8 @@ import argparse
 import os
 import sys
 
-from .config import DEFAULT_DB_PATH
+from . import __version__
+from .config import DEFAULT_DB_PATH, SCHEMA_VERSION
 
 
 def _cmd_build(args: argparse.Namespace) -> int:
@@ -157,6 +158,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--database",
         default=DEFAULT_DB_PATH,
         help="path to the SQLite database (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="hpa_cellexp {} (schema v{}) from {}".format(
+            __version__, SCHEMA_VERSION, os.path.dirname(os.path.abspath(__file__))
+        ),
+        help="print the version, schema version and install location",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

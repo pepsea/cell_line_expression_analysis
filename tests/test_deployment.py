@@ -170,6 +170,31 @@ class ComposeTests(unittest.TestCase):
                 self.assertEqual(ctx.exception.code, 0)
 
 
+class VersionTests(unittest.TestCase):
+    """`--version` exists so "unrecognized arguments" can be diagnosed as an
+    out-of-date checkout or Docker image rather than a bad command."""
+
+    def test_version_prints_and_exits_cleanly(self):
+        import contextlib
+        import io
+
+        from hpa_cellexp import __version__
+        from hpa_cellexp.__main__ import main
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as ctx:
+            main(["--version"])
+        self.assertEqual(ctx.exception.code, 0)
+        text = out.getvalue()
+        self.assertIn(__version__, text)
+        self.assertIn("schema v", text)
+
+    def test_readme_documents_the_stale_build_failure(self):
+        readme = read("README.md")
+        self.assertIn("unrecognized arguments", readme)
+        self.assertIn("docker compose run --rm --build build", readme)
+
+
 class ServeOptionsTests(unittest.TestCase):
     """The image drives serve entirely through environment variables."""
 

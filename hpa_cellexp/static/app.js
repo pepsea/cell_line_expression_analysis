@@ -25,6 +25,7 @@ const state = {
   maxima: null,      // memoised scaleMaxima(); invalidated when the result changes
   groups: null,      // memoised organGroups(); invalidated when the row order changes
   organJa: {},       // {"Lung": "肺"} - display labels for the heatmap gutter
+  organRank: {},     // {"Lung": 14} - canonical (anatomical) display order
   tableDirty: true,  // the table view is built lazily - it is the expensive one
 };
 
@@ -34,6 +35,17 @@ const state = {
 const TABLE_ROW_LIMIT = 500;
 
 const $ = (id) => document.getElementById(id);
+
+// Digit-aware collation: NCI-H2 must come before NCI-H1650, not after it.
+const NATURAL = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+const byName = (a, b) => NATURAL.compare(a, b) || (a < b ? -1 : a > b ? 1 : 0);
+
+/** Canonical (anatomical) position of an organ; unlisted ones sort last. */
+function organRank(organ) {
+  if (!organ) return 1e6;
+  const rank = state.organRank[organ];
+  return rank === undefined ? 1e5 : rank;
+}
 
 // ---------------------------------------------------------------------------
 // colour scale - validated sequential blue ramp, 100 -> 700
@@ -133,7 +145,10 @@ async function init() {
     `${meta.release} · ${meta.geneCount.toLocaleString()} 遺伝子 × ${meta.cellLineCount.toLocaleString()} 細胞株`;
   if (meta.isDemo) $('demoBanner').classList.add('on');
 
-  meta.facets.organs.forEach((o) => { if (o.labelJa) state.organJa[o.value] = o.labelJa; });
+  meta.facets.organs.forEach((o) => {
+    if (o.labelJa) state.organJa[o.value] = o.labelJa;
+    if (typeof o.rank === 'number') state.organRank[o.value] = o.rank;
+  });
   buildSourcePanel(meta);
 
   buildMetricRadios(meta.availableMetrics);
@@ -293,16 +308,20 @@ function buildFacet(containerId, values, key, options = {}) {
 
     const name = document.createElement('span');
     name.className = 'name';
-    if (labelJa) {
+    // Sentinel values (e.g. the "unassigned organ" bucket) have no real name
+    // to show alongside the label.
+    const sentinel = value.startsWith('__');
+    if (labelJa && !sentinel) {
       name.textContent = labelJa;
       const original = document.createElement('span');
       original.className = 'name-en';
       original.textContent = value;
       name.append(' ', original);
     } else {
-      name.textContent = value;
+      name.textContent = labelJa || value;
     }
-    name.title = labelJa ? `${labelJa} (${value})` : value;
+    name.title = labelJa && !sentinel ? `${labelJa} (${value})` : (labelJa || value);
+    if (sentinel) item.dataset.value = (labelJa || '').toLowerCase();
 
     const badge = document.createElement('span');
     badge.className = 'count';
@@ -634,12 +653,15 @@ function applySort() {
   const order = Array.from({ length: n }, (_, i) => i);
 
   if (state.sort === 'name') {
-    order.sort((a, b) => data.cellLines[a].name.localeCompare(data.cellLines[b].name));
+    order.sort((a, b) => byName(data.cellLines[a].name, data.cellLines[b].name));
   } else if (state.sort === 'organ') {
     order.sort((a, b) => {
       const A = data.cellLines[a], B = data.cellLines[b];
-      const oa = A.organ || '￿', ob = B.organ || '￿';
-      return oa.localeCompare(ob) || A.name.localeCompare(B.name);
+      // Group in the same anatomical order the labels are listed in, so the
+      // sequence on screen matches the labels the reader actually sees.
+      return organRank(A.organ) - organRank(B.organ)
+        || (A.organ || '').localeCompare(B.organ || '')
+        || byName(A.name, B.name);
     });
   } else if (data.genes.length) {
     const sign = state.sort === 'value-desc' ? -1 : 1;
@@ -647,10 +669,10 @@ function applySort() {
     order.sort((a, b) => {
       const va = keys[a], vb = keys[b];
       // Missing values always sink to the bottom, in both directions.
-      if (va === null && vb === null) return data.cellLines[a].name.localeCompare(data.cellLines[b].name);
+      if (va === null && vb === null) return byName(data.cellLines[a].name, data.cellLines[b].name);
       if (va === null) return 1;
       if (vb === null) return -1;
-      return sign * (va - vb) || data.cellLines[a].name.localeCompare(data.cellLines[b].name);
+      return sign * (va - vb) || byName(data.cellLines[a].name, data.cellLines[b].name);
     });
   }
 
@@ -1326,7 +1348,13 @@ async function downloadTsv() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = 'hpa_cell_line_expression.tsv';
+    // Stamped with the local date and time so repeated exports do not
+    // overwrite each other and stay traceable to when they were taken.
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`
+      + `_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    anchor.download = `hpa_cell_line_expression_${stamp}.tsv`;
     anchor.click();
     URL.revokeObjectURL(url);
   } catch (err) {

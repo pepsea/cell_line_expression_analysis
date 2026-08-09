@@ -50,6 +50,11 @@ class IngestReport:
     tcga_rows: int = 0
     metrics: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    # {file: {logical field: matched header or None}} - printed after a build so
+    # a metadata file whose columns were not recognised is obvious immediately
+    # rather than showing up later as "no organ for most cell lines".
+    column_mapping: Dict[str, Dict[str, Optional[str]]] = field(default_factory=dict)
+    organ_sources: Dict[str, int] = field(default_factory=dict)
     seconds: float = 0.0
 
     def as_text(self) -> str:
@@ -62,6 +67,20 @@ class IngestReport:
             "skipped rows     : {:,}".format(self.skipped_rows),
             "elapsed          : {:.1f}s".format(self.seconds),
         ]
+        for path, mapping in self.column_mapping.items():
+            lines.append("columns in {}:".format(path))
+            for field_name, header in mapping.items():
+                lines.append(
+                    "  {:<14} {}".format(
+                        field_name, header if header else "(見つかりません / not found)"
+                    )
+                )
+        if self.organ_sources:
+            lines.append("由来臓器の判定内訳:")
+            for source, count in sorted(
+                self.organ_sources.items(), key=lambda kv: -kv[1]
+            ):
+                lines.append("  {:>6}  {}".format(count, source))
         for warning in self.warnings:
             lines.append("warning          : {}".format(warning))
         return "\n".join(lines)
@@ -159,26 +178,62 @@ class CellLineRecord:
     source: Optional[str] = None
 
 
-def _load_metadata(path: str, report: IngestReport) -> Dict[str, CellLineRecord]:
-    """Read a cell line annotation table into ``{name: CellLineRecord}``."""
+def _load_metadata(
+    path: str,
+    report: IngestReport,
+    overrides: Optional[Dict[str, str]] = None,
+) -> Dict[str, CellLineRecord]:
+    """Read a cell line annotation table into ``{name: CellLineRecord}``.
+
+    ``overrides`` maps a logical field ("organ", "disease", ...) to an exact
+    header name, for files whose columns the alias lists do not recognise.
+    """
     records: Dict[str, CellLineRecord] = {}
     label = os.path.basename(path)
+    overrides = {k: v for k, v in (overrides or {}).items() if v}
 
     for header, rows in read_rows(path):
-        idx_name = C.resolve(header, C.CELL_LINE, required=True)
+        lookup = {C.normalise_header(h): i for i, h in enumerate(header)}
+
+        def pick(key, field):
+            forced = overrides.get(key)
+            if forced:
+                position = lookup.get(C.normalise_header(forced))
+                if position is None:
+                    raise C.MissingColumn(
+                        "{}: --{}-column {!r} not present; headers are {}".format(
+                            label, key, forced, ", ".join(header)
+                        )
+                    )
+                return position
+            return C.resolve(header, field)
+
+        idx_name = pick("cell-line", C.CELL_LINE)
+        if idx_name is None:
+            idx_name = C.resolve(header, C.CELL_LINE, required=True)
         idx = {
-            "organ": C.resolve(header, C.ORGAN),
-            "tissue": C.resolve(header, C.TISSUE),
-            "disease": C.resolve(header, C.DISEASE),
+            "organ": pick("organ", C.ORGAN),
+            "tissue": pick("tissue", C.TISSUE),
+            "disease": pick("disease", C.DISEASE),
             "species": C.resolve(header, C.SPECIES),
             "cvcl": C.resolve(header, C.CELLOSAURUS),
             "sex": C.resolve(header, C.SEX),
             "age": C.resolve(header, C.AGE),
         }
+        report.column_mapping[label] = {
+            "cell line": header[idx_name],
+            **{
+                key: (header[pos] if pos is not None else None)
+                for key, pos in idx.items()
+            },
+        }
         if idx["organ"] is None and idx["tissue"] is None and idx["disease"] is None:
             report.warnings.append(
-                "{}: no organ/tissue/disease column found (headers: {}); "
-                "由来臓器 facet will fall back to TCGA inference".format(label, ", ".join(header))
+                "{}: organ/tissue/disease 列が認識できませんでした (headers: {})。"
+                "--organ-column / --disease-column で明示指定するか、"
+                "hpa_cellexp/columns.py の別名リストに追加してください。".format(
+                    label, ", ".join(header)
+                )
             )
 
         def cell(row: Sequence[str], key: str) -> Optional[str]:
@@ -285,6 +340,7 @@ def build_database(
     release: Optional[str] = None,
     demo: bool = False,
     progress: bool = True,
+    column_overrides: Optional[Dict[str, str]] = None,
 ) -> IngestReport:
     """Create ``db_path`` from the given HPA files, replacing any existing file."""
     started = time.time()
@@ -304,7 +360,7 @@ def build_database(
         # 1. Cell line metadata -------------------------------------------
         metadata: Dict[str, CellLineRecord] = {}
         for path in metadata_paths or ():
-            for name, record in _load_metadata(path, report).items():
+            for name, record in _load_metadata(path, report, column_overrides).items():
                 existing = metadata.get(name)
                 if existing is None:
                     metadata[name] = record
@@ -444,11 +500,18 @@ def build_database(
                         organ_source = "TCGA類似度からの推定 ({}) ※参考値".format(best[1])
                         tcga_inferred += 1
             if organ is None:
+                curated = R.organ_from_cell_line_name(name)
+                if curated:
+                    organ, organ_source = curated[0], curated[1]
+            if organ is None:
                 organ = R.organ_from_text(name)
                 if organ:
                     organ_source = "細胞株名からの推定 ※参考値"
             if organ is None:
                 unannotated += 1
+            report.organ_sources[organ_source or "（判定できず / 未設定）"] = (
+                report.organ_sources.get(organ_source or "（判定できず / 未設定）", 0) + 1
+            )
             cell_rows.append(
                 (
                     cid,

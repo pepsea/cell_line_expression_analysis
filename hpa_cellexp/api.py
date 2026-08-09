@@ -6,6 +6,7 @@ import csv
 import io
 import os
 import re
+import time
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
@@ -171,9 +172,16 @@ def create_app(db_path: str = DEFAULT_DB_PATH) -> FastAPI:
                     for row in range(len(result["genes"]))
                 ]
             )
+        filename = "hpa_cell_line_expression_{}.tsv".format(
+            time.strftime("%Y%m%d_%H%M%S", time.localtime())
+        )
         return PlainTextResponse(
             buffer.getvalue(),
-            headers={"Content-Disposition": 'attachment; filename="hpa_cell_line_expression.tsv"'},
+            headers={
+                "Content-Disposition": 'attachment; filename="{}"'.format(filename),
+                # Let the browser read the name back for the download.
+                "Access-Control-Expose-Headers": "Content-Disposition",
+            },
             media_type="text/tab-separated-values; charset=utf-8",
         )
 

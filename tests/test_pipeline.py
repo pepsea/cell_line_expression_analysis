@@ -68,6 +68,27 @@ class ColumnTests(unittest.TestCase):
         self.assertEqual(C.normalise_header("Normalized enrichment score"),
                          "normalized_enrichment_score")
 
+    def test_camel_case_headers(self):
+        """"CellLineName" has to reduce to the same key as "Cell line name"."""
+        self.assertEqual(C.normalise_header("CellLineName"), "cell_line_name")
+        self.assertEqual(C.normalise_header("SiteOfOrigin"), "site_of_origin")
+        self.assertEqual(C.normalise_header("OncotreeLineage"), "oncotree_lineage")
+        self.assertEqual(C.normalise_header("nTPM"), "n_tpm")
+        self.assertEqual(C.normalise_header("pTPM"), "p_tpm")
+
+    def test_metric_headers_still_resolve(self):
+        header = ["Gene", "Gene name", "Cell line", "TPM", "pTPM", "nTPM"]
+        self.assertEqual(C.resolve(header, C.TPM), 3)
+        self.assertEqual(C.resolve(header, C.PTPM), 4)
+        self.assertEqual(C.resolve(header, C.NTPM), 5)
+
+    def test_unconventional_metadata_headers(self):
+        header = ["CellLineName", "SiteOfOrigin", "Histology", "OncotreeLineage"]
+        self.assertEqual(C.resolve(header, C.CELL_LINE), 0)
+        self.assertEqual(C.resolve(header, C.TISSUE), 1)
+        self.assertEqual(C.resolve(header, C.DISEASE), 2)
+        self.assertEqual(C.resolve(header, C.ORGAN), 3)
+
     def test_resolve_aliases_and_missing(self):
         header = ["Gene", "Gene name", "Cell_line", "nTPM"]
         self.assertEqual(C.resolve(header, C.GENE_ID), 0)
@@ -483,6 +504,17 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(body["total"], 1)
         self.assertEqual(body["results"][0]["name"], "HEP G2")
 
+    def test_tsv_filename_carries_a_timestamp(self):
+        import re as _re
+
+        response = self.client.post("/api/expression.tsv", json={"genes": "ALB"})
+        disposition = response.headers["content-disposition"]
+        self.assertRegex(
+            disposition,
+            r'filename="hpa_cell_line_expression_\d{8}_\d{6}\.tsv"',
+            "export filename should be stamped with the date and time",
+        )
+
     def test_tsv_export(self):
         response = self.client.post(
             "/api/expression.tsv", json={"genes": "ALB,EGFR", "metric": "ntpm"}
@@ -496,6 +528,163 @@ class ApiTests(unittest.TestCase):
     def test_gene_autocomplete(self):
         body = self.client.get("/api/genes", params={"q": "eg"}).json()
         self.assertEqual([g["symbol"] for g in body["results"]], ["EGFR"])
+
+
+class OrderingTests(unittest.TestCase):
+    """The order on screen has to match the labels on screen."""
+
+    def test_natural_name_order(self):
+        names = ["NCI-H1650", "NCI-H2", "NCI-H23", "NCI-H460", "U-2 OS", "U-138 MG"]
+        self.assertEqual(
+            sorted(names, key=R.natural_key),
+            ["NCI-H2", "NCI-H23", "NCI-H460", "NCI-H1650", "U-2 OS", "U-138 MG"],
+        )
+
+    def test_organs_use_the_canonical_anatomical_order(self):
+        """Sorting by the English value while showing Japanese labels produced
+        a sequence that read as random; the order comes from labels_ja.tsv."""
+        organs = ["Colon", "Bone marrow", "Lung", "Cervix", "Brain", "Breast"]
+        self.assertEqual(
+            sorted(organs, key=lambda o: (R.display_rank(o), o)),
+            ["Bone marrow", "Brain", "Lung", "Colon", "Breast", "Cervix"],
+        )
+
+    def test_unlisted_organs_sort_last(self):
+        self.assertGreater(R.display_rank("Something Unlisted"), R.display_rank("Vasculature"))
+        self.assertGreater(R.display_rank(None), R.display_rank("Something Unlisted"))
+
+
+class CuratedOrganTests(unittest.TestCase):
+    """The built-in cell line list, used when the dataset says nothing."""
+
+    def test_exact_and_prefix_lookup(self):
+        self.assertEqual(R.organ_from_cell_line_name("CACO-2")[0], "Colon")
+        self.assertEqual(R.organ_from_cell_line_name("caco2")[0], "Colon")
+        self.assertEqual(R.organ_from_cell_line_name("HEP G2")[0], "Liver")
+        self.assertEqual(R.organ_from_cell_line_name("MDA-MB-468")[0], "Breast")
+        self.assertEqual(R.organ_from_cell_line_name("KYSE-150")[0], "Esophagus")
+        self.assertIsNone(R.organ_from_cell_line_name("NOT-A-CELL-LINE"))
+
+    def test_exact_entry_beats_its_own_series_prefix(self):
+        """SK-N-MC is an Ewing sarcoma line, not a neuroblastoma."""
+        self.assertEqual(R.organ_from_cell_line_name("SK-N-SH")[0], "Peripheral nervous system")
+        self.assertEqual(R.organ_from_cell_line_name("SK-N-MC")[0], "Bone")
+
+    def test_nci_h_series_is_not_blanket_lung(self):
+        self.assertEqual(R.organ_from_cell_line_name("NCI-H1650")[0], "Lung")
+        self.assertEqual(R.organ_from_cell_line_name("NCI-H929")[0], "Bone marrow")
+
+    def test_every_curated_organ_has_a_label(self):
+        exact, prefixes = R._cell_line_organs()
+        organs = set(exact.values()) | {organ for _, organ in prefixes}
+        missing = sorted(o for o in organs if not R.label_ja(o))
+        self.assertEqual(missing, [], "organs missing from labels_ja.tsv: {}".format(missing))
+
+    def test_results_are_labelled_as_estimates(self):
+        for name in ("CACO-2", "MDA-MB-468"):
+            self.assertIn("参考値", R.organ_from_cell_line_name(name)[1])
+
+
+class OrganCoverageTests(unittest.TestCase):
+    """Filling in 由来臓器 when the metadata does not supply it."""
+
+    EXPR = (
+        "Gene name\tCell line\tnTPM\n"
+        "GAPDH\tCACO-2\t100\nGAPDH\tA-549\t100\nGAPDH\tSK-MEL-30\t100\n"
+        "GAPDH\tMYSTERY-XYZ\t100\n"
+    )
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _build(self, metadata=None, overrides=None):
+        d = self.tmp.name
+        db_path = os.path.join(d, "cov.sqlite")
+        build_database(
+            db_path=db_path,
+            expression_path=write(d, "e.tsv", self.EXPR),
+            metadata_paths=[write(d, "m.tsv", metadata)] if metadata else [],
+            progress=False,
+            column_overrides=overrides,
+        )
+        db = Database(db_path)
+        return db, {c["name"]: c for c in db.cell_lines()}
+
+    def test_curated_list_fills_gaps_when_no_metadata(self):
+        _, rows = self._build()
+        self.assertEqual(rows["CACO-2"]["organ"], "Colon")
+        self.assertEqual(rows["A-549"]["organ"], "Lung")
+        self.assertEqual(rows["SK-MEL-30"]["organ"], "Skin")
+        self.assertIn("参考値", rows["CACO-2"]["organSource"])
+        # Genuinely unknown stays unknown rather than being guessed at.
+        self.assertIsNone(rows["MYSTERY-XYZ"]["organ"])
+
+    def test_metadata_always_beats_the_curated_list(self):
+        _, rows = self._build(
+            "Cell line\tOrgan\nCACO-2\tRectum\nA-549\tLung\n"
+        )
+        self.assertEqual(rows["CACO-2"]["organ"], "Rectum")
+        self.assertEqual(rows["CACO-2"]["organSource"], "メタデータの organ 列")
+
+    def test_unrecognised_headers_still_yield_organs(self):
+        """The reported case: a metadata file whose columns are not detected."""
+        db, rows = self._build(
+            "CellLineName\tSiteOfOrigin\nCACO-2\t-\nA-549\t-\nSK-MEL-30\t-\nMYSTERY-XYZ\t-\n"
+        )
+        self.assertEqual(rows["CACO-2"]["organ"], "Colon")
+        self.assertEqual(rows["A-549"]["organ"], "Lung")
+
+    def test_column_overrides(self):
+        _, rows = self._build(
+            "Line\tWhereFrom\nCACO-2\tRectum\nA-549\tLung\n",
+            overrides={"cell-line": "Line", "organ": "WhereFrom"},
+        )
+        self.assertEqual(rows["CACO-2"]["organ"], "Rectum")
+
+    def test_bad_override_names_the_problem(self):
+        with self.assertRaises(C.MissingColumn) as ctx:
+            self._build("Line\tWhereFrom\nCACO-2\tRectum\n",
+                        overrides={"cell-line": "Line", "organ": "Nope"})
+        self.assertIn("Nope", str(ctx.exception))
+
+    def test_report_records_the_column_mapping_and_organ_sources(self):
+        d = self.tmp.name
+        report = build_database(
+            db_path=os.path.join(d, "r.sqlite"),
+            expression_path=write(d, "e2.tsv", self.EXPR),
+            metadata_paths=[write(d, "m2.tsv", "CellLineName\tHistology\nCACO-2\tcolon cancer\n")],
+            progress=False,
+        )
+        mapping = report.column_mapping["m2.tsv"]
+        self.assertEqual(mapping["cell line"], "CellLineName")
+        self.assertEqual(mapping["disease"], "Histology")
+        self.assertIsNone(mapping["organ"])
+        self.assertEqual(sum(report.organ_sources.values()), report.cell_lines)
+        self.assertIn("（判定できず / 未設定）", report.organ_sources)
+
+    def test_unassigned_organ_is_a_selectable_facet(self):
+        from hpa_cellexp.queries import UNASSIGNED_ORGAN
+
+        db, _ = self._build()
+        facets = db.facets()
+        self.assertEqual(facets["organUnassigned"], 1)
+        entry = [f for f in facets["organs"] if f["value"] == UNASSIGNED_ORGAN]
+        self.assertEqual(len(entry), 1)
+        self.assertEqual(entry[0]["labelJa"], "（未設定）")
+
+        picked = [r["name"] for r in db.cell_lines(organs=[UNASSIGNED_ORGAN])]
+        self.assertEqual(picked, ["MYSTERY-XYZ"])
+        combined = sorted(r["name"] for r in db.cell_lines(organs=[UNASSIGNED_ORGAN, "Lung"]))
+        self.assertEqual(combined, ["A-549", "MYSTERY-XYZ"])
+
+    def test_cell_lines_come_back_in_canonical_order(self):
+        db, _ = self._build()
+        names = [r["name"] for r in db.cell_lines()]
+        # Lung -> Colon -> Skin anatomically, unassigned last.
+        self.assertEqual(names, ["A-549", "CACO-2", "SK-MEL-30", "MYSTERY-XYZ"])
 
 
 class SourceProvenanceTests(unittest.TestCase):

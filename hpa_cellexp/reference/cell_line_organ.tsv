@@ -1,0 +1,335 @@
+# Fallback 由来臓器 for well-known cell lines, by name.
+#
+# ONLY consulted when the metadata files supply nothing for that cell line -
+# an organ from here never overrides a sourced one.  Everything matched here is
+# recorded as 推定 ※参考値 in organ_source and shown that way in the UI, because
+# it comes from this list rather than from the dataset.
+#
+# match  = exact | prefix
+#   exact  compares the punctuation-stripped upper-case name, so "HEP G2",
+#          "HepG2" and "hep-g2" all match the key HEPG2.
+#   prefix matches the start of that same key.
+# Exact entries are always tried before prefixes, so an exception (SK-N-MC is
+# Ewing sarcoma, not neuroblastoma) can sit alongside its series.
+#
+# Add your own rows freely - this file is data, not code.
+match	name	organ
+# --- bone marrow: myeloid leukaemia & myeloma ------------------------------
+exact	K-562	Bone marrow
+exact	HL-60	Bone marrow
+exact	THP-1	Bone marrow
+exact	NB-4	Bone marrow
+exact	KG-1	Bone marrow
+exact	HEL	Bone marrow
+exact	MEG-01	Bone marrow
+exact	KU812	Bone marrow
+exact	MOLM-13	Bone marrow
+exact	MV4-11	Bone marrow
+exact	U-937	Bone marrow
+exact	HAP1	Bone marrow
+exact	RPMI-8226	Bone marrow
+exact	U-266	Bone marrow
+exact	NCI-H929	Bone marrow
+exact	LP-1	Bone marrow
+exact	OPM-2	Bone marrow
+exact	JJN-3	Bone marrow
+exact	L-363	Bone marrow
+exact	EJM	Bone marrow
+exact	SK-MM-2	Bone marrow
+exact	KARPAS-707	Bone marrow
+prefix	OCI-AML	Bone marrow
+prefix	KMS-	Bone marrow
+# --- lymphoid --------------------------------------------------------------
+exact	JURKAT	Lymphoid tissue
+exact	CCRF-CEM	Lymphoid tissue
+exact	MOLT-4	Lymphoid tissue
+exact	REH	Lymphoid tissue
+exact	NALM-6	Lymphoid tissue
+exact	RAJI	Lymphoid tissue
+exact	RAMOS	Lymphoid tissue
+exact	DAUDI	Lymphoid tissue
+exact	NAMALWA	Lymphoid tissue
+exact	BJAB	Lymphoid tissue
+exact	HDLM-2	Lymphoid tissue
+exact	L-428	Lymphoid tissue
+exact	L-1236	Lymphoid tissue
+exact	KM-H2	Lymphoid tissue
+exact	U-698	Lymphoid tissue
+exact	GRANTA-519	Lymphoid tissue
+exact	JEKO-1	Lymphoid tissue
+exact	MINO	Lymphoid tissue
+exact	KARPAS-299	Lymphoid tissue
+exact	HUT-78	Lymphoid tissue
+prefix	SU-DHL-	Lymphoid tissue
+prefix	OCI-LY	Lymphoid tissue
+# --- brain -----------------------------------------------------------------
+exact	A-172	Brain
+exact	T98G	Brain
+exact	LN-18	Brain
+exact	LN-229	Brain
+exact	DAOY	Brain
+exact	SNB-19	Brain
+exact	SNB-75	Brain
+prefix	SF-2	Brain
+prefix	SF-5	Brain
+# --- peripheral nervous system (neuroblastoma) -----------------------------
+# SK-N-MC is an Ewing sarcoma line, not a neuroblastoma - exact wins over the
+# SK-N- prefix below.
+exact	SK-N-MC	Bone
+exact	SH-SY5Y	Peripheral nervous system
+exact	IMR-32	Peripheral nervous system
+exact	KELLY	Peripheral nervous system
+exact	LAN-1	Peripheral nervous system
+exact	CHP-212	Peripheral nervous system
+exact	SIMA	Peripheral nervous system
+prefix	SK-N-	Peripheral nervous system
+prefix	BE(2)-	Peripheral nervous system
+# --- eye -------------------------------------------------------------------
+exact	WERI-RB-1	Eye
+exact	Y79	Eye
+# --- skin ------------------------------------------------------------------
+exact	A-375	Skin
+exact	MEWO	Skin
+exact	MALME-3M	Skin
+exact	RPMI-7951	Skin
+exact	G-361	Skin
+exact	A-431	Skin
+exact	HACAT	Skin
+prefix	SK-MEL-	Skin
+prefix	WM-	Skin
+# --- head and neck ---------------------------------------------------------
+exact	FADU	Head and neck
+exact	DETROIT 562	Head and neck
+exact	CAL 27	Head and neck
+exact	HSC-3	Head and neck
+prefix	UM-SCC-	Head and neck
+prefix	BICR	Head and neck
+prefix	SCC-	Head and neck
+# --- thyroid ---------------------------------------------------------------
+exact	8505C	Thyroid gland
+exact	TPC-1	Thyroid gland
+exact	BCPAP	Thyroid gland
+exact	FTC-133	Thyroid gland
+exact	CAL-62	Thyroid gland
+# --- adrenal ---------------------------------------------------------------
+exact	NCI-H295R	Adrenal gland
+exact	SW13	Adrenal gland
+# --- lung ------------------------------------------------------------------
+# The NCI-H series is NOT uniformly lung (H929 myeloma, H716 colorectal), so it
+# is listed line by line rather than as a prefix.
+exact	A-549	Lung
+exact	CALU-1	Lung
+exact	CALU-3	Lung
+exact	CALU-6	Lung
+exact	NCI-H1299	Lung
+exact	NCI-H1650	Lung
+exact	NCI-H1975	Lung
+exact	NCI-H2228	Lung
+exact	NCI-H358	Lung
+exact	NCI-H460	Lung
+exact	NCI-H520	Lung
+exact	NCI-H522	Lung
+exact	NCI-H23	Lung
+exact	NCI-H1703	Lung
+exact	PC-9	Lung
+exact	HCC827	Lung
+exact	SK-MES-1	Lung
+exact	EKVX	Lung
+exact	HOP-62	Lung
+exact	HOP-92	Lung
+# --- pleura ----------------------------------------------------------------
+exact	MSTO-211H	Pleura
+exact	NCI-H2452	Pleura
+exact	NCI-H28	Pleura
+exact	MPP-89	Pleura
+# --- oesophagus ------------------------------------------------------------
+exact	OE19	Esophagus
+exact	OE21	Esophagus
+exact	OE33	Esophagus
+exact	FLO-1	Esophagus
+prefix	KYSE-	Esophagus
+# --- stomach ---------------------------------------------------------------
+exact	AGS	Stomach
+exact	KATO III	Stomach
+exact	NUGC-3	Stomach
+exact	HGC-27	Stomach
+exact	NCI-N87	Stomach
+prefix	MKN-	Stomach
+# --- colon / rectum --------------------------------------------------------
+exact	CACO-2	Colon
+exact	HT-29	Colon
+exact	HCT 116	Colon
+exact	HCT-15	Colon
+exact	SW480	Colon
+exact	SW620	Colon
+exact	SW48	Colon
+exact	SW1116	Colon
+exact	LOVO	Colon
+exact	DLD-1	Colon
+exact	RKO	Colon
+exact	LS174T	Colon
+exact	LS180	Colon
+exact	LS411N	Colon
+exact	LS1034	Colon
+exact	COLO 205	Colon
+exact	COLO 320	Colon
+exact	T84	Colon
+exact	NCI-H508	Colon
+exact	NCI-H716	Colon
+exact	KM12	Colon
+exact	WIDR	Colon
+exact	SW837	Rectum
+# --- liver & bile duct -----------------------------------------------------
+exact	HEP G2	Liver
+exact	HEP 3B	Liver
+exact	HUH-7	Liver
+exact	HUH-1	Liver
+exact	HUH-6	Liver
+exact	PLC/PRF/5	Liver
+exact	SK-HEP-1	Liver
+prefix	JHH-	Liver
+exact	HUCCT1	Bile duct
+exact	TFK-1	Bile duct
+exact	RBE	Bile duct
+exact	HUH-28	Bile duct
+# --- pancreas --------------------------------------------------------------
+exact	PANC-1	Pancreas
+exact	MIA PACA-2	Pancreas
+exact	ASPC-1	Pancreas
+exact	BXPC-3	Pancreas
+exact	CAPAN-1	Pancreas
+exact	CAPAN-2	Pancreas
+exact	CFPAC-1	Pancreas
+exact	HPAF-II	Pancreas
+exact	HPAC	Pancreas
+exact	SU.86.86	Pancreas
+exact	SW1990	Pancreas
+exact	KP-4	Pancreas
+exact	QGP-1	Pancreas
+# --- kidney ----------------------------------------------------------------
+exact	HEK 293	Kidney
+exact	HEK 293T	Kidney
+exact	786-O	Kidney
+exact	A-498	Kidney
+exact	ACHN	Kidney
+exact	769-P	Kidney
+exact	HK-2	Kidney
+exact	SN12C	Kidney
+exact	TK-10	Kidney
+exact	UO-31	Kidney
+prefix	CAKI-	Kidney
+# --- urinary bladder -------------------------------------------------------
+exact	T24	Urinary bladder
+exact	RT4	Urinary bladder
+exact	RT-112	Urinary bladder
+exact	5637	Urinary bladder
+exact	SCABER	Urinary bladder
+exact	J82	Urinary bladder
+exact	HT-1376	Urinary bladder
+exact	SW780	Urinary bladder
+exact	TCCSUP	Urinary bladder
+prefix	UM-UC-	Urinary bladder
+# --- prostate --------------------------------------------------------------
+exact	LNCAP	Prostate
+exact	PC-3	Prostate
+exact	DU 145	Prostate
+exact	22RV1	Prostate
+exact	VCAP	Prostate
+exact	LAPC-4	Prostate
+# --- testis ----------------------------------------------------------------
+exact	NTERA-2	Testis
+exact	NCCIT	Testis
+exact	TCAM-2	Testis
+exact	2102EP	Testis
+# --- ovary -----------------------------------------------------------------
+exact	A2780	Ovary
+exact	SK-OV-3	Ovary
+exact	ES-2	Ovary
+exact	IGROV-1	Ovary
+exact	KURAMOCHI	Ovary
+exact	OVSAHO	Ovary
+exact	OV-90	Ovary
+exact	EFO-21	Ovary
+exact	EFO-27	Ovary
+prefix	OVCAR-	Ovary
+prefix	CAOV-	Ovary
+prefix	TOV-	Ovary
+prefix	COV3	Ovary
+# --- endometrium -----------------------------------------------------------
+exact	ISHIKAWA	Endometrium
+exact	AN3-CA	Endometrium
+exact	RL95-2	Endometrium
+exact	KLE	Endometrium
+exact	JHUEM-2	Endometrium
+prefix	HEC-	Endometrium
+prefix	MFE-	Endometrium
+# --- cervix ----------------------------------------------------------------
+exact	HELA	Cervix
+exact	SIHA	Cervix
+exact	CASKI	Cervix
+exact	C-33 A	Cervix
+exact	ME-180	Cervix
+exact	MS751	Cervix
+exact	HT-3	Cervix
+exact	SW756	Cervix
+# --- placenta --------------------------------------------------------------
+exact	BEWO	Placenta
+exact	JEG-3	Placenta
+exact	JAR	Placenta
+exact	HTR-8/SVNEO	Placenta
+# --- breast ----------------------------------------------------------------
+exact	MCF7	Breast
+exact	T-47D	Breast
+exact	SK-BR-3	Breast
+exact	BT-20	Breast
+exact	BT-474	Breast
+exact	BT-549	Breast
+exact	ZR-75-1	Breast
+exact	ZR-75-30	Breast
+exact	CAMA-1	Breast
+exact	EFM-19	Breast
+exact	EVSA-T	Breast
+exact	HS 578T	Breast
+exact	MCF 10A	Breast
+exact	JIMT-1	Breast
+exact	SUM159PT	Breast
+prefix	MDA-MB-	Breast
+# --- bone ------------------------------------------------------------------
+exact	U-2 OS	Bone
+exact	SAOS-2	Bone
+exact	MG-63	Bone
+exact	143B	Bone
+exact	HOS	Bone
+exact	SJSA-1	Bone
+exact	CAL-72	Bone
+exact	G-292	Bone
+exact	SK-ES-1	Bone
+exact	A-673	Bone
+exact	RD-ES	Bone
+exact	TC-71	Bone
+# --- soft tissue -----------------------------------------------------------
+exact	HT-1080	Soft tissue
+exact	RD	Soft tissue
+exact	RH-30	Soft tissue
+exact	RH-41	Soft tissue
+exact	A-204	Soft tissue
+exact	SK-UT-1	Soft tissue
+exact	SW872	Soft tissue
+exact	SK-LMS-1	Soft tissue
+exact	SJCRH30	Soft tissue
+# --- connective tissue (fibroblasts) ---------------------------------------
+exact	BJ	Connective tissue
+exact	IMR-90	Connective tissue
+exact	WI-38	Connective tissue
+exact	MRC-5	Connective tissue
+exact	HFF-1	Connective tissue
+exact	TIG-1	Connective tissue
+exact	HS27	Connective tissue
+# --- vasculature (endothelium) ---------------------------------------------
+exact	HUVEC	Vasculature
+exact	TIME	Vasculature
+exact	HMEC-1	Vasculature
+exact	HHSTEC	Vasculature
+exact	HDLEC	Vasculature
+exact	TELO-HAEC	Vasculature
+exact	EA.HY926	Vasculature

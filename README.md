@@ -81,28 +81,61 @@ python3 -m hpa_cellexp serve --host 0.0.0.0 --port 8000
 
 ### 列名について
 
-HPA はリリースごとに列名を変えることがあるため、取り込み側は
-**列名を別名リストで解決** します（`Cell line` / `Cell_line` / `CELL-LINE` はすべて同じ、
-`TPM` しか無い旧リリースもそのまま読める、など）。
-手元のファイルの列構成は次で確認できます:
+取り込み側は**列名を別名リストで解決**します。`Cell line` / `Cell_line` / `CELL-LINE` /
+`CellLineName` はすべて同じものとして扱い（camelCase も分解します）、`TPM` しか無い
+旧リリースもそのまま読めます。DepMap 由来の `OncotreeLineage` /
+`OncotreePrimaryDisease` なども認識します。
 
-```bash
-python3 -m hpa_cellexp inspect path/to/rna_celline.tsv.zip
+**取り込み後、どの列が使われたかが必ず表示されます**:
+
+```
+columns in cell_line_analysis_data.tsv:
+  cell line      Cell line
+  organ          (見つかりません / not found)
+  tissue         Site of origin
+  disease        Histology
 ```
 
-想定外の列名だった場合は `hpa_cellexp/columns.py` の別名リストに追記してください。
+`organ` も `tissue` も `disease` も見つからない場合は、由来臓器がほとんど埋まりません。
+その場合は列を明示指定してください:
+
+```bash
+python3 -m hpa_cellexp inspect path/to/cell_line_analysis_data.tsv.zip   # 列を確認
+python3 -m hpa_cellexp build --expression ... --metadata ... \
+    --cell-line-column "Cell line name" \
+    --organ-column     "Site of origin" \
+    --disease-column   "Histology"
+```
 
 ### 由来臓器 (organ) はどこから来るか
 
-優先順に:
+優先順に決定し、**どの段で決まったかを記録**します（UI と `organs` コマンドで確認可）。
 
-1. メタデータファイルの organ / tissue 列
-2. メタデータファイルの disease / tissue 列からのキーワード推定
+1. メタデータの organ 列
+2. organ 列が `Intestine` のような広い分類の場合、疾患/組織名でより具体的な臓器へ細分化
+   （例: `Intestine` + `Colorectal adenocarcinoma` → `Colon`）
+3. メタデータの disease / tissue 列からのキーワード推定
    （`hpa_cellexp/reference/organ_keywords.tsv`）
-3. TCGA 比較ファイルの最上位がん種からの推定
+4. TCGA 比較ファイルの最上位がん種からの推定 — **※参考値**
    （`hpa_cellexp/reference/tcga_organ.tsv`、例 `LUAD` → `Lung`）
+5. **内蔵の細胞株リストからの推定 — ※参考値**
+   （`hpa_cellexp/reference/cell_line_organ.tsv`）
 
-いずれにも当てはまらない細胞株は organ 未設定となり、取り込み時に件数が警告表示されます。
+1〜3 はデータ由来、4〜5 は推定値で `※参考値` と明示されます。
+5 はメタデータに情報が無いときの穴埋めで、CACO-2→結腸、NCI-H1650→肺 のように
+既知の細胞株を名前で引きます。記号・空白は無視して照合し、`MDA-MB-*` のような
+シリーズ指定もできます。**単なるデータファイルなので自由に追記・修正してください。**
+
+どれにも当てはまらない細胞株は未設定となり、絞り込みでは「（未設定）」として選べます。
+取り込み時に判定内訳が表示されます:
+
+```
+由来臓器の判定内訳:
+     812  メタデータの organ 列
+     193  疾患/組織名からの推定
+     147  内蔵の細胞株リストから推定 ※参考値
+      54  （判定できず / 未設定）
+```
 
 ### 種 (species) について
 
@@ -122,6 +155,8 @@ HPA の細胞株リソースは全てヒト由来のため、種の列が無い�
 5. ヒートマップ上でセルにホバーすると詳細、**細胞株名をクリックで Cellosaurus**。
    テーブルビューでは列見出しクリックでソート、細胞株名はリンクです。
 6. 「TSV をダウンロード」で結果をそのまま解析に回せます。
+   ファイル名には日時が入ります（`hpa_cell_line_expression_20260809_153012.tsv`）ので、
+   繰り返しエクスポートしても上書きされず、いつ取得したものか後から分かります。
 
 ### ヒートマップの向き
 
@@ -208,7 +243,7 @@ curl -X POST localhost:8000/api/expression \
 
 ```
 hpa_cellexp/
-  __main__.py     CLI (build / inspect / demo / serve)
+  __main__.py     CLI (build / inspect / demo / organs / serve)
   ingest.py       取り込み: TSV/ZIP をストリーミングして SQLite を構築
   sources.py      .tsv / .tsv.zip / .tsv.gz の透過リーダ
   columns.py      列名の別名解決（リリース間の差異を吸収）
@@ -217,7 +252,11 @@ hpa_cellexp/
   api.py          FastAPI アプリ
   schema.sql      SQLite スキーマ
   demo.py         合成デモデータ
-  reference/      臓器マッピングと日本語ラベルの参照テーブル (TSV)
+  reference/      参照テーブル (TSV):
+                    organ_keywords.tsv   疾患/組織名 → 臓器のキーワード
+                    cell_line_organ.tsv  既知の細胞株 → 臓器（穴埋め用）
+                    tcga_organ.tsv       TCGAがん種 → 臓器
+                    labels_ja.tsv        日本語ラベル＋表示順
   static/         フロントエンド（ビルド不要のプレーン HTML/CSS/JS）
 tests/            取り込み・クエリ・API のテスト
 ```
@@ -251,6 +290,16 @@ pip install playwright && playwright install chromium
 形式が古いままだと、以前は**画面は普通に開くのに検索だけが失敗する**（= 検索が
 壊れているように見える）状態になっていました。現在は起動時とAPIの応答で
 明示的に再構築を促します。
+
+### 由来臓器が付いている細胞株がほとんどない
+
+まず取り込み時に表示される列マッピングを確認してください。`organ` / `tissue` /
+`disease` がすべて `(見つかりません)` なら、メタデータが一切使われていません。
+`--organ-column` などで列を明示指定すると解決します（「列名について」を参照）。
+
+メタデータ側に情報が無い場合でも、内蔵の細胞株リストから推定して穴埋めします
+（`※参考値` と明示）。手元の細胞株が載っていなければ
+`hpa_cellexp/reference/cell_line_organ.tsv` に追記してください。
 
 ### 由来臓器が想定と違う
 

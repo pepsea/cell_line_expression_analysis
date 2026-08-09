@@ -26,8 +26,11 @@ __all__ = [
     "is_broad_organ",
     "labels_ja",
     "label_ja",
+    "display_rank",
+    "natural_key",
     "tcga_organ_map",
     "organ_from_text",
+    "organ_from_cell_line_name",
     "normalise_organ",
     "normalise_species",
     "cellosaurus_url",
@@ -73,6 +76,26 @@ def name_key(name: Optional[str]) -> str:
     return _NON_ALNUM_RE.sub("", name.upper())
 
 
+_DIGITS_RE = re.compile(r"(\d+)")
+
+
+def natural_key(name: Optional[str]):
+    """Sort key that orders embedded numbers numerically.
+
+    Plain lexicographic order puts NCI-H1650 before NCI-H2, which is not what
+    anyone reading a list of cell lines expects - and HPA ships dozens of
+    numbered series (NCI-H*, SK-MEL-*, MDA-MB-*).
+    """
+    if not name:
+        return ()
+    parts = _DIGITS_RE.split(name.upper())
+    return tuple(
+        (1, int(part), "") if index % 2 else (0, 0, part)
+        for index, part in enumerate(parts)
+        if part != ""
+    )
+
+
 def _read_tsv(filename: str) -> List[List[str]]:
     path = os.path.join(_REFERENCE_DIR, filename)
     rows: List[List[str]] = []
@@ -111,6 +134,62 @@ def label_ja(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
     return labels_ja().get(value.strip())
+
+
+@lru_cache(maxsize=1)
+def _display_order() -> Dict[str, int]:
+    """``{"Bone marrow": 0, "Blood": 1, ...}`` - row order in labels_ja.tsv."""
+    rows = _read_tsv("labels_ja.tsv")
+    return {row[0].strip(): i for i, row in enumerate(rows[1:]) if len(row) >= 2 and row[0]}
+
+
+def display_rank(value: Optional[str]) -> int:
+    """Position in the canonical (anatomical) display order.
+
+    Unlisted values sort after every listed one; callers break the remaining
+    ties on the value itself.
+    """
+    if not value:
+        return 10 ** 6
+    return _display_order().get(value.strip(), 10 ** 5)
+
+
+@lru_cache(maxsize=1)
+def _cell_line_organs() -> Tuple[Dict[str, str], Tuple[Tuple[str, str], ...]]:
+    """``({name_key: organ}, ((prefix, organ), ...))`` from cell_line_organ.tsv."""
+    exact: Dict[str, str] = {}
+    prefixes: List[Tuple[str, str]] = []
+    for row in _read_tsv("cell_line_organ.tsv")[1:]:  # skip header
+        if len(row) < 3 or not row[1] or not row[2]:
+            continue
+        kind, name, organ = row[0].strip().lower(), row[1].strip(), row[2].strip()
+        if kind == "exact":
+            exact[name_key(name)] = organ
+        elif kind == "prefix":
+            prefixes.append((name_key(name), organ))
+    # Longest prefix first, so a more specific series wins over a shorter one.
+    prefixes.sort(key=lambda pair: -len(pair[0]))
+    return exact, tuple(prefixes)
+
+
+def organ_from_cell_line_name(name: Optional[str]) -> Optional[Tuple[str, str]]:
+    """Look a cell line up in the built-in table.
+
+    Returns ``(organ, provenance label)`` or ``None``.  Only a fallback: the
+    caller must try the dataset's own metadata first, and the label marks the
+    result as an estimate so it never passes for sourced data.
+    """
+    key = name_key(name)
+    if not key:
+        return None
+    exact, prefixes = _cell_line_organs()
+    organ = exact.get(key)
+    if organ:
+        return organ, "内蔵の細胞株リストから推定 ※参考値"
+    for prefix, organ in prefixes:
+        if key.startswith(prefix):
+            return organ, "内蔵の細胞株リスト（{}…）から推定 ※参考値".format(prefix)
+    return None
 
 
 @lru_cache(maxsize=1)

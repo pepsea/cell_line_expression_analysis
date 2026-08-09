@@ -10,9 +10,25 @@ from .config import DEFAULT_DB_PATH
 
 
 def _cmd_build(args: argparse.Namespace) -> int:
+    from .columns import MissingColumn
     from .ingest import build_database
 
-    report = build_database(
+    try:
+        report = _run_build(args, build_database)
+    except MissingColumn as exc:
+        print("列を認識できませんでした / column not found:\n  {}\n\n"
+              "ファイルの列構成を確認:  python -m hpa_cellexp inspect <FILE>\n"
+              "列を明示指定:            --cell-line-column / --organ-column / "
+              "--disease-column / --tissue-column".format(exc), file=sys.stderr)
+        return 1
+    print(report.as_text())
+    size = os.path.getsize(args.database) / (1024 ** 2)
+    print("database         : {} ({:,.1f} MiB)".format(args.database, size))
+    return 0
+
+
+def _run_build(args, build_database):
+    return build_database(
         db_path=args.database,
         expression_path=args.expression,
         metadata_paths=args.metadata,
@@ -20,11 +36,13 @@ def _cmd_build(args: argparse.Namespace) -> int:
         release=args.release,
         demo=False,
         progress=not args.quiet,
+        column_overrides={
+            "cell-line": args.cell_line_column,
+            "organ": args.organ_column,
+            "tissue": args.tissue_column,
+            "disease": args.disease_column,
+        },
     )
-    print(report.as_text())
-    size = os.path.getsize(args.database) / (1024 ** 2)
-    print("database         : {} ({:,.1f} MiB)".format(args.database, size))
-    return 0
 
 
 def _cmd_inspect(args: argparse.Namespace) -> int:
@@ -150,6 +168,13 @@ def main(argv=None) -> int:
     build.add_argument("--tcga", help="rna_cell_line_tcga_comparison.tsv[.zip]")
     build.add_argument("--release", help="label for the HPA release, e.g. 'HPA v24'")
     build.add_argument("--quiet", action="store_true", help="suppress progress output")
+    # Escape hatch for metadata files whose headers the alias lists miss.
+    build.add_argument("--cell-line-column", metavar="HEADER",
+                       help="exact header holding the cell line name")
+    build.add_argument("--organ-column", metavar="HEADER",
+                       help="exact header holding the organ of origin (由来臓器)")
+    build.add_argument("--tissue-column", metavar="HEADER", help="exact header holding the tissue")
+    build.add_argument("--disease-column", metavar="HEADER", help="exact header holding the disease")
     build.set_defaults(func=_cmd_build)
 
     inspect = sub.add_parser("inspect", help="print the header and first rows of input files")

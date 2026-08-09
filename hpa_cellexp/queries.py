@@ -9,11 +9,14 @@ import threading
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .config import SCHEMA_VERSION
-from .reference import cellosaurus_url, label_ja, name_key
+from .reference import cellosaurus_url, display_rank, label_ja, name_key, natural_key
 
-__all__ = ["Database", "DatabaseMissing", "SchemaOutdated"]
+__all__ = ["Database", "DatabaseMissing", "SchemaOutdated", "UNASSIGNED_ORGAN"]
 
 METRICS = ("ntpm", "ptpm", "tpm")
+
+# Sentinel facet value for cell lines whose 由来臓器 could not be determined.
+UNASSIGNED_ORGAN = "__unassigned__"
 
 # SQLite has a hard cap (SQLITE_MAX_VARIABLE_NUMBER, historically 999) on bound
 # parameters per statement; chunk long IN () lists below it with room to spare.
@@ -121,16 +124,38 @@ class Database:
                 "WHERE {0} IS NOT NULL AND {0} != '' GROUP BY {0} ORDER BY n DESC, value".format(column)
             )
             # `labelJa` is display/search only - `value` stays the filter key.
-            return [
-                {"value": r["value"], "count": r["n"], "labelJa": label_ja(r["value"])}
+            # Ordered by the canonical (anatomical) sequence from
+            # labels_ja.tsv so the list reads in the same order as the labels
+            # actually shown, not alphabetically in a language that is not.
+            items = [
+                {
+                    "value": r["value"],
+                    "count": r["n"],
+                    "labelJa": label_ja(r["value"]),
+                    "rank": display_rank(r["value"]),
+                }
                 for r in rows
             ]
+            items.sort(key=lambda item: (item["rank"], item["value"]))
+            return items
 
         unassigned = self._query(
             "SELECT COUNT(*) AS n FROM cell_lines WHERE organ IS NULL OR organ = ''"
         )[0]["n"]
+        organs = collect("organ")
+        if unassigned:
+            # Without this the cell lines that have no organ are unreachable
+            # from the facet - selecting every organ silently drops them.
+            organs.append(
+                {
+                    "value": UNASSIGNED_ORGAN,
+                    "count": unassigned,
+                    "labelJa": "（未設定）",
+                    "rank": 10 ** 7,
+                }
+            )
         return {
-            "organs": collect("organ"),
+            "organs": organs,
             "species": collect("species"),
             "diseases": collect("disease"),
             "organUnassigned": unassigned,
@@ -226,7 +251,22 @@ class Database:
             clauses.append("{} IN ({})".format(column, ",".join("?" * len(values))))
             params.extend(values)
 
-        add_in("organ", organs)
+        organs = [v for v in (organs or []) if v]
+        if UNASSIGNED_ORGAN in organs:
+            named = [v for v in organs if v != UNASSIGNED_ORGAN]
+            if named:
+                if len(named) > _PARAM_CHUNK:
+                    raise ValueError("too many values for filter 'organ'")
+                clauses.append(
+                    "(organ IS NULL OR organ = '' OR organ IN ({}))".format(
+                        ",".join("?" * len(named))
+                    )
+                )
+                params.extend(named)
+            else:
+                clauses.append("(organ IS NULL OR organ = '')")
+        else:
+            add_in("organ", organs)
         add_in("species", species)
         add_in("disease", diseases)
         if names:
@@ -256,12 +296,17 @@ class Database:
         sql = (
             "SELECT id, name, organ, organ_source, tissue, disease, species, "
             "cellosaurus_id, sex, age "
-            "FROM cell_lines" + where + " ORDER BY organ IS NULL, organ, name"
+            "FROM cell_lines" + where
         )
         if limit:
             sql += " LIMIT ?"
             params = params + [limit]
-        return [self._cell_line_dict(row) for row in self._query(sql, params)]
+        rows = [self._cell_line_dict(row) for row in self._query(sql, params)]
+        # Sorted here rather than in SQL: the organ order is the anatomical one
+        # from labels_ja.tsv, and names need natural (digit-aware) collation so
+        # NCI-H2 comes before NCI-H1650.
+        rows.sort(key=lambda r: (display_rank(r["organ"]), r["organ"] or "", natural_key(r["name"])))
+        return rows
 
     def count_cell_lines(self, **filters: Any) -> int:
         where, params = self._cell_line_filter(**filters)

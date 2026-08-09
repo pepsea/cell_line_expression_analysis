@@ -1,58 +1,72 @@
-# Japanese labels for facet values.
+# Japanese labels for facet values, AND the canonical display order.
 #
-# HPA reports organs and species in English, so the facet values stored in the
+# HPA reports organs and species in English, so the values stored in the
 # database stay English (they are the filter keys).  These labels are attached
-# to the /api/meta payload purely for display and for searching the facet list
-# in Japanese - typing "肺" has to find "Lung".
+# to the /api/meta payload for display and for searching the facet list in
+# Japanese - typing "肺" has to find "Lung".
+#
+# ROW ORDER IS THE DISPLAY ORDER.  Sorting by the English value while showing
+# the Japanese label produced a sequence that looked random to a reader
+# (骨 → 骨髄 → 脳 → 乳腺 → 子宮頸部 → 結腸 → 結合組織 …, i.e. alphabetical in a
+# language that is not on screen).  Organs are therefore listed here in
+# anatomical order and both the heatmap grouping and the facet list follow it.
+# Anything not listed sorts after everything listed, by name.
 value	ja
-# --- organs ---------------------------------------------------------------
-Adrenal gland	副腎
-Appendix	虫垂
-Bile duct	胆管
-Blood	血液
-Bone	骨
+# --- haematopoietic & lymphoid --------------------------------------------
 Bone marrow	骨髄
-Brain	脳
-Breast	乳腺
-Cervix	子宮頸部
-Colon	結腸
-Connective tissue	結合組織
-Embryonic tissue	胚性組織
-Endometrium	子宮内膜
-Esophagus	食道
-Eye	眼
-Gallbladder	胆嚢
-Head and neck	頭頸部
-Heart	心臓
-Intestine	腸
-Kidney	腎臓
-Liver	肝臓
-Lung	肺
+Blood	血液
 Lymphoid tissue	リンパ組織
-Muscle	筋肉
-Ovary	卵巣
-Pancreas	膵臓
-Parathyroid gland	副甲状腺
-Peripheral nervous system	末梢神経系
-Peritoneum	腹膜
-Pituitary gland	下垂体
-Placenta	胎盤
-Pleura	胸膜
-Prostate	前立腺
-Rectum	直腸
-Skin	皮膚
-Small intestine	小腸
-Soft tissue	軟部組織
-Spleen	脾臓
-Stomach	胃
-Testis	精巣
 Thymus	胸腺
+Spleen	脾臓
+# --- nervous system & eye --------------------------------------------------
+Brain	脳
+Peripheral nervous system	末梢神経系
+Eye	眼
+# --- head, neck & endocrine ------------------------------------------------
+Head and neck	頭頸部
 Thyroid gland	甲状腺
+Parathyroid gland	副甲状腺
+Pituitary gland	下垂体
+Adrenal gland	副腎
+# --- respiratory -----------------------------------------------------------
+Lung	肺
+Pleura	胸膜
+# --- gastrointestinal ------------------------------------------------------
+Esophagus	食道
+Stomach	胃
+Small intestine	小腸
+Intestine	腸
+Appendix	虫垂
+Colon	結腸
+Rectum	直腸
+Liver	肝臓
+Bile duct	胆管
+Gallbladder	胆嚢
+Pancreas	膵臓
+Peritoneum	腹膜
+# --- urinary ---------------------------------------------------------------
+Kidney	腎臓
 Urinary bladder	膀胱
+# --- reproductive ----------------------------------------------------------
+Breast	乳腺
+Prostate	前立腺
+Testis	精巣
+Ovary	卵巣
 Uterus	子宮
-Vasculature	血管
+Endometrium	子宮内膜
+Cervix	子宮頸部
 Vulva	外陰部
-# --- species --------------------------------------------------------------
+Placenta	胎盤
+# --- skin, musculoskeletal, other -----------------------------------------
+Skin	皮膚
+Bone	骨
+Muscle	筋肉
+Soft tissue	軟部組織
+Connective tissue	結合組織
+Vasculature	血管
+Heart	心臓
+Embryonic tissue	胚性組織
+# --- species ---------------------------------------------------------------
 Homo sapiens	ヒト
 Mus musculus	マウス
 Rattus norvegicus	ラット

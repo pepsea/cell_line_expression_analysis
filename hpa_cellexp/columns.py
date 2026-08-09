@@ -49,6 +49,15 @@ def normalise_header(name: str) -> str:
     ``cell_line``.
     """
     cleaned = name.strip().lstrip("﻿").strip('"').strip()
+    # Split camelCase / PascalCase first, so "CellLineName" and "SiteOfOrigin"
+    # reduce to the same keys as "Cell line name" and "Site of origin".
+    spaced: List[str] = []
+    for index, ch in enumerate(cleaned):
+        previous = cleaned[index - 1] if index else ""
+        if ch.isupper() and (previous.islower() or previous.isdigit()):
+            spaced.append(" ")
+        spaced.append(ch)
+    cleaned = "".join(spaced)
     out: List[str] = []
     prev_sep = False
     for ch in cleaned.lower():
@@ -70,7 +79,20 @@ GENE_SYMBOL = (
     "gene_name",
     ("gene_name", "gene_symbol", "symbol", "genename", "hgnc_symbol", "gene_description"),
 )
-CELL_LINE = ("cell_line", ("cell_line", "cellline", "cell", "cell_line_name", "name"))
+CELL_LINE = (
+    "cell_line",
+    (
+        "cell_line",
+        "cell_line_name",
+        "cellline",
+        "cellline_name",
+        "cell_name",
+        "stripped_cell_line_name",
+        "model_name",
+        "cell",
+        "name",
+    ),
+)
 
 TPM = ("tpm", ("tpm",))
 PTPM = ("ptpm", ("ptpm", "p_tpm", "protein_coding_tpm"))
@@ -78,15 +100,60 @@ NTPM = ("ntpm", ("ntpm", "n_tpm", "normalized_tpm", "normalised_tpm", "consensus
 
 ORGAN = (
     "organ",
-    ("organ", "organ_of_origin", "primary_organ", "tissue_of_origin", "origin_organ", "organ_system"),
+    (
+        "organ",
+        "organ_of_origin",
+        "primary_organ",
+        "tissue_of_origin",
+        "origin_organ",
+        "organ_system",
+        "anatomical_site",
+        "body_site",
+        # DepMap-style exports, which users often merge into their metadata
+        "oncotree_lineage",
+        "lineage",
+    ),
 )
 TISSUE = (
     "tissue",
-    ("tissue", "primary_tissue", "tissue_origin", "origin", "primary_site", "site", "cell_line_origin"),
+    (
+        "tissue",
+        "primary_tissue",
+        "tissue_origin",
+        "tissue_type",
+        "origin_tissue",
+        "site_of_origin",
+        "primary_site",
+        "sample_site",
+        "origin",
+        "site",
+        "anatomy",
+        "cell_line_origin",
+        "oncotree_lineage_subtype",
+        "lineage_subtype",
+    ),
 )
 DISEASE = (
     "disease",
-    ("disease", "cancer", "cancer_type", "disease_name", "diagnosis", "cellosaurus_disease", "cell_line_disease"),
+    (
+        "disease",
+        "primary_disease",
+        "disease_name",
+        "cancer",
+        "cancer_type",
+        "cancer_subtype",
+        "tumor_type",
+        "tumour_type",
+        "histology",
+        "histological_type",
+        "histology_subtype",
+        "diagnosis",
+        "pathology",
+        "oncotree_primary_disease",
+        "oncotree_subtype",
+        "cellosaurus_disease",
+        "cell_line_disease",
+    ),
 )
 SPECIES = ("species", ("species", "organism", "taxon", "cellosaurus_species"))
 CELLOSAURUS = (

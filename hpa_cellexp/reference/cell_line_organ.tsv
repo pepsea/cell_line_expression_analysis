@@ -94,21 +94,21 @@ prefix	SF-5	Brain
 # SK-N-MC is an Ewing sarcoma line, not a neuroblastoma - exact wins over the
 # SK-N- prefix below.
 exact	SK-N-MC	Bone
-exact	SH-SY5Y	Peripheral nervous system
-exact	IMR-32	Peripheral nervous system
-exact	KELLY	Peripheral nervous system
-exact	SK-N-BE(2)	Peripheral nervous system
-exact	SK-N-DZ	Peripheral nervous system
-exact	SK-N-AS	Peripheral nervous system
-exact	SK-N-FI	Peripheral nervous system
-exact	NB-1	Peripheral nervous system
-exact	GI-ME-N	Peripheral nervous system
-exact	CHP-126	Peripheral nervous system
-exact	LAN-1	Peripheral nervous system
-exact	CHP-212	Peripheral nervous system
-exact	SIMA	Peripheral nervous system
-prefix	SK-N-	Peripheral nervous system
-prefix	BE(2)-	Peripheral nervous system
+exact	SH-SY5Y	Brain
+exact	IMR-32	Brain
+exact	KELLY	Brain
+exact	SK-N-BE(2)	Brain
+exact	SK-N-DZ	Brain
+exact	SK-N-AS	Brain
+exact	SK-N-FI	Brain
+exact	NB-1	Brain
+exact	GI-ME-N	Brain
+exact	CHP-126	Brain
+exact	LAN-1	Brain
+exact	CHP-212	Brain
+exact	SIMA	Brain
+prefix	SK-N-	Brain
+prefix	BE(2)-	Brain
 # --- eye -------------------------------------------------------------------
 exact	WERI-RB-1	Eye
 exact	Y79	Eye

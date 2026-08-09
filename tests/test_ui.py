@@ -364,10 +364,10 @@ class UiTests(unittest.TestCase):
         self.page.wait_for_timeout(1500)
         self.assertEqual(self.visible_names(99), ["HEP G2"])
 
-    def test_searching_the_brain_also_surfaces_the_peripheral_nervous_system(self):
-        """Kelly is a neuroblastoma line, so it is filed under the peripheral
-        nervous system - correct, but someone looking for 脳 concluded the cell
-        line had disappeared.  Each nervous-system organ finds the other."""
+    def test_a_neuroblastoma_line_is_under_the_brain(self):
+        """The report: Kelly shows up when sorting by name or by expression,
+        but vanishes from the 由来臓器 grouping.  It was in its own
+        "peripheral nervous system" bucket, not the 脳 everyone looks in."""
         self.run_genes("GAPDH")
         self.page.fill("#organSearch", "脳")
         self.page.wait_for_timeout(300)
@@ -376,8 +376,7 @@ class UiTests(unittest.TestCase):
             "els => els.filter(e => e.style.display !== 'none')"
             "        .map(e => e.querySelector('input').value)",
         )
-        self.assertIn("Brain", shown)
-        self.assertIn("Peripheral nervous system", shown)
+        self.assertEqual(shown, ["Brain"], "the nervous system is one bucket")
 
         self.page.eval_on_selector_all(
             "#organList .facet-item",
@@ -385,7 +384,22 @@ class UiTests(unittest.TestCase):
             "        .forEach(e => e.querySelector('input').click())",
         )
         self.page.wait_for_timeout(1500)
-        self.assertIn("Kelly", self.visible_names(99))
+        names = self.visible_names(99)
+        for expected in ("Kelly", "SH-SY5Y", "SK-N-SH", "U-251 MG"):
+            self.assertIn(expected, names)
+
+    def test_no_cell_line_is_lost_when_grouping_by_organ(self):
+        """The heart of "由来臓器で並べると細胞が消える": every cell line the
+        name ordering shows must still be on screen in the organ ordering."""
+        self.run_genes("GAPDH")
+        self.page.select_option("#sortSelect", "name")
+        self.page.wait_for_timeout(600)
+        by_name = sorted(self.visible_names(999))
+        self.page.select_option("#sortSelect", "organ")
+        self.page.wait_for_timeout(600)
+        by_organ = sorted(self.visible_names(999))
+        self.assertEqual(by_name, by_organ)
+        self.assertIn("Kelly", by_organ)
 
     def test_species_facet_shows_one_entry_per_species(self):
         """Regression: the facet rendered "ヒト Homo sapiens", which reads as

@@ -19,12 +19,15 @@ Lymphoid tissue	リンパ組織	リンパ腫 lymphoma 白血病 leukemia リン�
 Thymus	胸腺
 Spleen	脾臓
 # --- nervous system & eye --------------------------------------------------
-# Third column = extra words that find this row in the facet list.  A
-# neuroblastoma line is filed under the peripheral nervous system, which is
-# correct but not where someone looking for 脳 thinks to look, so each finds
-# the other.  Search only - it does not change any classification.
-Brain	脳	神経 nervous CNS 中枢神経 glioma グリオーマ 神経芽腫 neuroblastoma 末梢神経系
-Peripheral nervous system	末梢神経系	神経 nervous 脳 brain 神経芽腫 neuroblastoma 交感神経 ganglia
+# One bucket for the whole nervous system.  Splitting the peripheral nervous
+# system out was anatomically tidier but made cell lines look lost: a
+# neuroblastoma line like Kelly stopped appearing under 脳, which is where
+# every reader looks for it.  The disease column still says 神経芽腫, so no
+# information is lost - only the facet stops splitting.
+#
+# Third column = extra words that find this row in the facet list.  Search
+# only; it does not change any classification.
+Brain	脳	神経 nervous CNS 中枢神経 末梢神経系 peripheral 交感神経 ganglia glioma グリオーマ 神経芽腫 neuroblastoma
 Eye	眼	目 眼球 retina 網膜
 # --- head, neck & endocrine ------------------------------------------------
 Head and neck	頭頸部

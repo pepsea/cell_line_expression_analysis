@@ -161,6 +161,22 @@ class ReferenceTests(unittest.TestCase):
         # Only the unqualified term falls through to the broad category.
         self.assertEqual(R.organ_from_text("Intestine"), "Intestine")
 
+    def test_the_whole_nervous_system_is_one_organ(self):
+        """However a source words it, neural lines have to land in the same
+        bucket - otherwise Kelly is missing from 脳 and nowhere else obvious."""
+        for value in ("Nervous system", "Central nervous system", "CNS",
+                      "Peripheral nervous system", "Sympathetic nervous system"):
+            with self.subTest(value=value):
+                self.assertEqual(R.normalise_organ(value), "Brain")
+        self.assertEqual(R.organ_from_text("Neuroblastoma"), "Brain")
+
+    def test_nervous_system_is_not_split_by_the_disease_text(self):
+        """It used to be a "broad" organ, so "Nervous system" + neuroblastoma
+        was refined into a second organ the reader never thinks to open."""
+        self.assertFalse(R.is_broad_organ("Nervous system"))
+        # The refinement itself still works where it was actually wanted.
+        self.assertTrue(R.is_broad_organ("Intestine"))
+
     def test_broad_organs(self):
         self.assertTrue(R.is_broad_organ("Intestine"))
         self.assertTrue(R.is_broad_organ("  gastrointestinal tract "))
@@ -567,7 +583,7 @@ class CuratedOrganTests(unittest.TestCase):
 
     def test_exact_entry_beats_its_own_series_prefix(self):
         """SK-N-MC is an Ewing sarcoma line, not a neuroblastoma."""
-        self.assertEqual(R.organ_from_cell_line_name("SK-N-SH")[0], "Peripheral nervous system")
+        self.assertEqual(R.organ_from_cell_line_name("SK-N-SH")[0], "Brain")
         self.assertEqual(R.organ_from_cell_line_name("SK-N-MC")[0], "Bone")
 
     def test_nci_h_series_is_not_blanket_lung(self):
@@ -592,9 +608,7 @@ class CuratedOrganTests(unittest.TestCase):
                 self.assertEqual(R.organ_from_cell_line_name(name)[0], "Brain")
         for name in ("Kelly", "SK-N-BE(2)", "SK-N-DZ", "GI-ME-N"):
             with self.subTest(cell_line=name):
-                self.assertEqual(
-                    R.organ_from_cell_line_name(name)[0], "Peripheral nervous system"
-                )
+                self.assertEqual(R.organ_from_cell_line_name(name)[0], "Brain")
 
 
 class SpeciesTests(unittest.TestCase):
@@ -615,10 +629,13 @@ class FacetSearchTermTests(unittest.TestCase):
     """The optional third column of labels_ja.tsv: words that find a facet
     value without changing how anything is classified."""
 
-    def test_the_two_nervous_systems_find_each_other(self):
-        self.assertIn("末梢神経系", R.search_terms("Brain"))
-        self.assertIn("脳", R.search_terms("Peripheral nervous system"))
-        self.assertIn("neuroblastoma", R.search_terms("Brain"))
+    def test_the_nervous_system_is_one_bucket_findable_by_its_parts(self):
+        """Kelly kept disappearing because neuroblastoma lines sat in a
+        separate organ from the 脳 everyone searches for."""
+        self.assertIsNone(R.label_ja("Peripheral nervous system"))
+        for word in ("末梢神経系", "neuroblastoma", "神経芽腫", "glioma"):
+            with self.subTest(word=word):
+                self.assertIn(word, R.search_terms("Brain"))
 
     def test_values_without_extra_terms_return_none(self):
         self.assertIsNone(R.search_terms("Liver"))

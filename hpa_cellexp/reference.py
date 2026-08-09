@@ -274,7 +274,9 @@ BROAD_ORGANS = frozenset(
         "urogenital",
         "respiratory system",
         "respiratory tract",
-        "nervous system",
+        # "nervous system" is deliberately NOT here.  Refining it by the
+        # disease text turned every neuroblastoma line into a second organ, so
+        # a source that said "Nervous system" stopped appearing under 脳.
         "lymphatic system",
         "haematopoietic system",
         "hematopoietic system",
@@ -291,6 +293,32 @@ def is_broad_organ(value: Optional[str]) -> bool:
     return bool(value) and value.strip().lower() in BROAD_ORGANS
 
 
+# Organ values that name the same facet under different words.  The nervous
+# system entries are the important ones: a dataset writing "Nervous system" and
+# one writing "Brain" must land in the same bucket, or half the neural cell
+# lines are missing from 脳 depending on which file they came from.
+_ORGAN_ALIASES = {
+    "nervous system": "Brain",
+    "central nervous system": "Brain",
+    "cns": "Brain",
+    "peripheral nervous system": "Brain",
+    "pns": "Brain",
+    "autonomic nervous system": "Brain",
+    "sympathetic nervous system": "Brain",
+    "neural": "Brain",
+    "cerebrum": "Brain",
+    "cerebellum": "Brain",
+    "large intestine": "Colon",
+    "colorectum": "Colon",
+    "mammary gland": "Breast",
+    "uterine cervix": "Cervix",
+    "oesophagus": "Esophagus",
+    "urinary bladder": "Urinary bladder",
+    "bladder": "Urinary bladder",
+    "haematopoietic": "Bone marrow",
+}
+
+
 def normalise_organ(value: Optional[str]) -> Optional[str]:
     """Tidy an organ label supplied by the source file (casing, whitespace)."""
     if not value:
@@ -298,6 +326,9 @@ def normalise_organ(value: Optional[str]) -> Optional[str]:
     cleaned = " ".join(value.replace("_", " ").split()).strip(" ,;")
     if not cleaned or cleaned.lower() in {"na", "n/a", "none", "unknown", "-"}:
         return None
+    alias = _ORGAN_ALIASES.get(cleaned.lower())
+    if alias:
+        return alias
     # Preserve embedded capitals (e.g. "B-cell") but capitalise a leading
     # lower-case word so "lung" and "Lung" collapse into one facet value.
     if cleaned[0].islower():

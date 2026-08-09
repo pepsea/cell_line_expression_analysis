@@ -54,10 +54,9 @@ _CELL_LINES: List[Tuple[str, str, str, Optional[str]]] = [
     ("JURKAT", "Lymphoid tissue", "T-cell leukemia", "CVCL_0065"),
     ("K-562", "Bone marrow", "Chronic myeloid leukemia", "CVCL_0004"),
     ("KARPAS-707", "Bone marrow", "Multiple myeloma", None),
-    # A neuroblastoma line: filed under the peripheral nervous system, which is
-    # correct, but people look for it under 脳.  Present so the facet search
-    # terms that bridge the two are exercised against real UI.
-    ("Kelly", "Peripheral nervous system", "Neuroblastoma", "CVCL_2092"),
+    # A neuroblastoma line.  Present because it is the one that kept going
+    # missing: the whole nervous system has to land in a single 脳 bucket.
+    ("Kelly", "Brain", "Neuroblastoma", "CVCL_2092"),
     ("LNCAP", "Prostate", "Prostate carcinoma", "CVCL_0395"),
     ("MCF7", "Breast", "Breast adenocarcinoma", "CVCL_0031"),
     ("MDA-MB-231", "Breast", "Breast adenocarcinoma", "CVCL_0062"),
@@ -69,7 +68,7 @@ _CELL_LINES: List[Tuple[str, str, str, Optional[str]]] = [
     ("RH-30", "Soft tissue", "Rhabdomyosarcoma", None),
     ("RPMI-8226", "Bone marrow", "Multiple myeloma", None),
     ("RT4", "Urinary bladder", "Urothelial carcinoma", None),
-    ("SH-SY5Y", "Peripheral nervous system", "Neuroblastoma", "CVCL_0019"),
+    ("SH-SY5Y", "Brain", "Neuroblastoma", "CVCL_0019"),
     ("SK-BR-3", "Breast", "Breast adenocarcinoma", None),
     ("SK-MEL-30", "Skin", "Melanoma", None),
     ("SW480", "Colon", "Colorectal adenocarcinoma", None),
@@ -82,7 +81,7 @@ _CELL_LINES: List[Tuple[str, str, str, Optional[str]]] = [
     ("U-266/70", "Bone marrow", "Multiple myeloma", None),
     ("U-698", "Lymphoid tissue", "B-cell lymphoma", None),
     ("WM-115", "Skin", "Melanoma", None),
-    ("SK-N-SH", "Peripheral nervous system", "Neuroblastoma", None),
+    ("SK-N-SH", "Brain", "Neuroblastoma", None),
 ]
 
 # gene -> (baseline nTPM, {organ: multiplier}) - a caricature of real biology,

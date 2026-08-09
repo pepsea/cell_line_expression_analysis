@@ -49,13 +49,13 @@ astrocytoma	Brain
 oligodendroglioma	Brain
 medulloblastoma	Brain
 glioma	Brain
-neuroblastoma	Peripheral nervous system
+neuroblastoma	Brain
 retinoblastoma	Eye
 brain	Brain
 cerebral	Brain
 cerebellum	Brain
 central nervous system	Brain
-peripheral nervous system	Peripheral nervous system
+peripheral nervous system	Brain
 # --- head, neck & sensory --------------------------------------------------
 # "parathyroid" MUST precede "thyroid".
 parathyroid	Parathyroid gland

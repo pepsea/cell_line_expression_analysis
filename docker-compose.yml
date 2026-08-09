@@ -35,9 +35,18 @@ services:
     # deliberately stop it.
     restart: unless-stopped
     ports:
+      # LEFT = the port you browse to on the host, RIGHT = inside the container.
+      # Change the port by setting HPA_CELLEXP_PORT (see .env.example); the
+      # container keeps listening on 8000, so nothing else needs touching.
+      # To reach it only through a reverse proxy, prefix with 127.0.0.1:
+      #   - "127.0.0.1:${HPA_CELLEXP_PORT:-8000}:8000"
       - "${HPA_CELLEXP_PORT:-8000}:8000"
     environment:
       HPA_CELLEXP_DB: /data/hpa_cellexp.sqlite
+      # Pinned: the container-internal port is the right-hand side of the
+      # ports mapping below.  Left unset it would inherit HPA_CELLEXP_PORT from
+      # .env, move the listener, and stop matching the mapping.
+      HPA_CELLEXP_PORT: "8000"
       # Reads are served from a read-only SQLite handle, so workers scale
       # safely. 1 is plenty for a lab-sized deployment.
       HPA_CELLEXP_WORKERS: ${HPA_CELLEXP_WORKERS:-1}

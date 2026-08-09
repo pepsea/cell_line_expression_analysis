@@ -200,8 +200,19 @@ def build_parser() -> argparse.ArgumentParser:
     organs.set_defaults(func=_cmd_organs)
 
     serve = sub.add_parser("serve", help="run the web server")
-    serve.add_argument("--host", default="127.0.0.1")
-    serve.add_argument("--port", type=int, default=8000)
+    # Defaults come from the environment so a container can be reconfigured
+    # without overriding the image's CMD.
+    serve.add_argument(
+        "--host",
+        default=os.environ.get("HPA_CELLEXP_HOST", "127.0.0.1"),
+        help="interface to bind (env HPA_CELLEXP_HOST, default: %(default)s)",
+    )
+    serve.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("HPA_CELLEXP_PORT", "8000")),
+        help="port to listen on (env HPA_CELLEXP_PORT, default: %(default)s)",
+    )
     serve.add_argument("--reload", action="store_true")
     serve.add_argument(
         "--workers",

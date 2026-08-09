@@ -41,7 +41,11 @@ class DockerfileTests(unittest.TestCase):
 
     def test_entrypoint_is_the_cli_module(self):
         self.assertIn('ENTRYPOINT ["python", "-m", "hpa_cellexp"]', self.text)
-        self.assertIn('CMD ["serve", "--host", "0.0.0.0", "--port", "8000"]', self.text)
+        # Host/port come from the environment, not the command line, so
+        # `docker run -e HPA_CELLEXP_PORT=9000` is enough to move the listener.
+        self.assertIn('CMD ["serve"]', self.text)
+        self.assertIn("HPA_CELLEXP_HOST=0.0.0.0", self.text)
+        self.assertIn("HPA_CELLEXP_PORT=8000", self.text)
 
     def test_runs_unprivileged(self):
         self.assertIn("USER app", self.text)
@@ -60,6 +64,11 @@ class DockerfileTests(unittest.TestCase):
         match = re.search(r'CMD python -c "(.+)"\n', self.text)
         self.assertIsNotNone(match, "healthcheck command not found")
         compile(match.group(1), "<healthcheck>", "exec")
+
+    def test_healthcheck_follows_an_overridden_port(self):
+        """Otherwise -e HPA_CELLEXP_PORT=9000 makes the container unhealthy
+        even though it is serving perfectly well."""
+        self.assertIn("HPA_CELLEXP_PORT", self.text.split("HEALTHCHECK", 1)[1])
 
     def test_static_assets_are_copied(self):
         """COPY hpa_cellexp/ must bring static/ and reference/ with it."""
@@ -89,6 +98,26 @@ class ComposeTests(unittest.TestCase):
         self.assertEqual(web["restart"], "unless-stopped")
         self.assertIn("healthcheck", web)
         self.assertTrue(any("8000" in str(p) for p in web["ports"]))
+
+    def test_host_port_is_configurable_and_defaults_to_8000(self):
+        published = self.services["web"]["ports"][0]
+        self.assertEqual(published, "${HPA_CELLEXP_PORT:-8000}:8000")
+
+    def test_container_port_is_pinned_to_the_mapping(self):
+        """HPA_CELLEXP_PORT in .env changes the HOST port only.
+
+        If it were also allowed to reach the container, the app would move off
+        8000 while the ports mapping still pointed there, and nothing would
+        answer.  The compose file pins the inside to 8000 explicitly.
+        """
+        self.assertEqual(self.services["web"]["environment"]["HPA_CELLEXP_PORT"], "8000")
+        self.assertTrue(self.services["web"]["ports"][0].endswith(":8000"))
+
+    def test_env_example_documents_the_port(self):
+        example = read(".env.example")
+        self.assertIn("HPA_CELLEXP_PORT=8000", example)
+        self.assertIn("HPA_SOURCE_DIR", example)
+        self.assertIn("HPA_CELLEXP_WORKERS", example)
 
     def test_web_logs_are_bounded(self):
         """An always-on container must not fill the disk with logs."""
@@ -181,6 +210,46 @@ class ServeOptionsTests(unittest.TestCase):
             from hpa_cellexp import __main__ as cli_again
 
             importlib.reload(cli_again)
+
+    def test_port_and_host_come_from_the_environment(self):
+        import importlib
+
+        saved = {k: os.environ.get(k) for k in ("HPA_CELLEXP_HOST", "HPA_CELLEXP_PORT")}
+        os.environ["HPA_CELLEXP_HOST"] = "0.0.0.0"
+        os.environ["HPA_CELLEXP_PORT"] = "9000"
+        try:
+            from hpa_cellexp import __main__ as cli
+
+            importlib.reload(cli)
+            args = cli.build_parser().parse_args(["serve"])
+            self.assertEqual(args.host, "0.0.0.0")
+            self.assertEqual(args.port, 9000)
+            # An explicit flag still wins over the environment.
+            self.assertEqual(cli.build_parser().parse_args(["serve", "--port", "1234"]).port, 1234)
+        finally:
+            for key, value in saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            from hpa_cellexp import __main__ as cli_again
+
+            importlib.reload(cli_again)
+
+    def test_port_defaults_to_8000_on_localhost(self):
+        import importlib
+
+        saved = {k: os.environ.pop(k, None) for k in ("HPA_CELLEXP_HOST", "HPA_CELLEXP_PORT")}
+        try:
+            from hpa_cellexp import __main__ as cli
+
+            importlib.reload(cli)
+            args = cli.build_parser().parse_args(["serve"])
+            self.assertEqual((args.host, args.port), ("127.0.0.1", 8000))
+        finally:
+            for key, value in saved.items():
+                if value is not None:
+                    os.environ[key] = value
 
     def test_worker_count_defaults_to_one(self):
         import importlib

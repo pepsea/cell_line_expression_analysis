@@ -57,11 +57,66 @@ docker compose up -d
 #    http://localhost:8000
 ```
 
+### ポートを変更する
+
+`HPA_CELLEXP_PORT` を変えるだけです。**恒久的に変えるなら `.env`** に書きます
+（`docker compose` が自動で読み込みます）:
+
+```bash
+cp .env.example .env
+# .env の HPA_CELLEXP_PORT=8000 を書き換える（例: 9000）
+docker compose up -d          # → http://localhost:9000
+```
+
+1回だけなら環境変数でも構いません:
+
+```bash
+HPA_CELLEXP_PORT=9000 docker compose up -d
+```
+
+変えるのは**ホスト側のポートだけ**で、コンテナ内は常に 8000 で待ち受けます。
+そのためポート変更でヘルスチェックやリバースプロキシ設定を直す必要はありません。
+（`docker-compose.yml` の `"${HPA_CELLEXP_PORT:-8000}:8000"` の左がホスト側、右が
+コンテナ側です。）
+
+外部に直接公開せず、リバースプロキシ経由だけにしたい場合は `ports` を
+ループバックに絞ります:
+
+```yaml
+    ports:
+      - "127.0.0.1:${HPA_CELLEXP_PORT:-8000}:8000"
+```
+
+**compose を使わない場合**（`docker run`）は、いつも通りの `-p` で変えられます:
+
+```bash
+docker run -d --restart unless-stopped -p 9000:8000 \
+  -v cellexp-data:/data hpa-cellexp:latest
+```
+
+`--network host` などでポートマッピングが使えない場合に限り、
+コンテナ内の待ち受けポート自体を動かせます。ヘルスチェックも追従します:
+
+```bash
+docker run -d --network host -e HPA_CELLEXP_PORT=9000 \
+  -v cellexp-data:/data hpa-cellexp:latest
+```
+
+**Docker を使わない場合**は `--port`（環境変数 `HPA_CELLEXP_PORT` でも可）:
+
+```bash
+python3 -m hpa_cellexp serve --host 0.0.0.0 --port 9000
+```
+
+### 設定一覧
+
 | 設定 | 既定値 | 説明 |
 |---|---|---|
-| `HPA_CELLEXP_PORT` | `8000` | 公開ポート |
+| `HPA_CELLEXP_PORT` | `8000` | **ブラウザでアクセスするポート**（ホスト側） |
 | `HPA_SOURCE_DIR` | `./hpa-source` | HPA ファイルの置き場（`/source` に読み取り専用でマウント） |
 | `HPA_CELLEXP_WORKERS` | `1` | ワーカー数。DB は読み取り専用で開くため安全に増やせます |
+
+`.env.example` をコピーして `.env` を作ると、上記をまとめて設定できます。
 
 - `restart: unless-stopped` — クラッシュ時もホスト再起動時も復帰し、
   自分で `docker compose stop` したときだけ止まったままになります。
@@ -104,8 +159,8 @@ docker compose cp web:/data/hpa_cellexp.sqlite ./hpa_cellexp.sqlite
 
 コンテナは HTTP をそのまま出すだけです。インターネットに出す場合は
 nginx / Caddy / Traefik などのリバースプロキシで TLS を終端し、
-`ports` を `"127.0.0.1:8000:8000"` に絞ってプロキシ経由のみにしてください。
-アプリに認証機能はありません。
+`ports` をループバックに絞って（「ポートを変更する」参照）プロキシ経由のみに
+してください。アプリに認証機能はありません。
 
 > ℹ️ このリポジトリの Docker 構成は、compose ファイルの妥当性・コンテナが実行する
 > コマンド・ヘルスチェックのコマンドまで検証済みですが、**イメージのビルド自体は
@@ -356,6 +411,7 @@ hpa_cellexp/
 tests/            取り込み・クエリ・API・UI・デプロイ構成のテスト
 Dockerfile          常時稼働用イメージ（アプリのみ。DB は volume）
 docker-compose.yml  web（常設）＋ build / demo / organs / inspect（単発）
+.env.example        ポート等の設定テンプレート（コピーして .env に）
 ```
 
 発現テーブルは `PRIMARY KEY (gene_id, cell_line_id)` の `WITHOUT ROWID` テーブルです。

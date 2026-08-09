@@ -1,0 +1,129 @@
+"""Command line entry point: ``python -m hpa_cellexp <command>``."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+
+from .config import DEFAULT_DB_PATH
+
+
+def _cmd_build(args: argparse.Namespace) -> int:
+    from .ingest import build_database
+
+    report = build_database(
+        db_path=args.database,
+        expression_path=args.expression,
+        metadata_paths=args.metadata,
+        tcga_path=args.tcga,
+        release=args.release,
+        demo=False,
+        progress=not args.quiet,
+    )
+    print(report.as_text())
+    size = os.path.getsize(args.database) / (1024 ** 2)
+    print("database         : {} ({:,.1f} MiB)".format(args.database, size))
+    return 0
+
+
+def _cmd_inspect(args: argparse.Namespace) -> int:
+    from .sources import describe
+
+    for path in args.files:
+        print("== {}".format(path))
+        print(describe(path, limit=args.rows))
+        print()
+    return 0
+
+
+def _cmd_demo(args: argparse.Namespace) -> int:
+    from .demo import build_demo_database
+
+    report = build_demo_database(args.database)
+    print(report.as_text())
+    print("database         : {} (DEMO DATA - not real measurements)".format(args.database))
+    return 0
+
+
+def _cmd_serve(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    db_path = os.path.abspath(args.database)
+    # Also exported so the --reload worker, which re-imports the module in a
+    # fresh process, picks up the same database.
+    os.environ["HPA_CELLEXP_DB"] = db_path
+
+    if not os.path.exists(db_path):
+        print(
+            "database not found: {}\n"
+            "build it first:  python -m hpa_cellexp build --expression rna_celline.tsv.zip\n"
+            "or try the demo: python -m hpa_cellexp demo".format(db_path),
+            file=sys.stderr,
+        )
+        return 1
+
+    print("serving {} on http://{}:{}".format(db_path, args.host, args.port), file=sys.stderr)
+    if args.reload:
+        # reload needs an import string; the env var above carries the path.
+        uvicorn.run("hpa_cellexp.api:app", host=args.host, port=args.port,
+                    reload=True, log_level="info")
+    else:
+        # Pass the application object so --database applies even though this
+        # process may already have imported hpa_cellexp.api.
+        from .api import create_app
+
+        uvicorn.run(create_app(db_path), host=args.host, port=args.port, log_level="info")
+    return 0
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="hpa_cellexp",
+        description="Human Protein Atlas cell line expression explorer",
+    )
+    parser.add_argument(
+        "--database",
+        default=DEFAULT_DB_PATH,
+        help="path to the SQLite database (default: %(default)s)",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    build = sub.add_parser("build", help="build the database from HPA download files")
+    build.add_argument(
+        "--expression",
+        required=True,
+        help="rna_celline.tsv (.tsv, .tsv.zip or .tsv.gz)",
+    )
+    build.add_argument(
+        "--metadata",
+        action="append",
+        default=[],
+        metavar="FILE",
+        help="cell line annotation table; repeatable, earlier files win",
+    )
+    build.add_argument("--tcga", help="rna_cell_line_tcga_comparison.tsv[.zip]")
+    build.add_argument("--release", help="label for the HPA release, e.g. 'HPA v24'")
+    build.add_argument("--quiet", action="store_true", help="suppress progress output")
+    build.set_defaults(func=_cmd_build)
+
+    inspect = sub.add_parser("inspect", help="print the header and first rows of input files")
+    inspect.add_argument("files", nargs="+")
+    inspect.add_argument("--rows", type=int, default=3)
+    inspect.set_defaults(func=_cmd_inspect)
+
+    demo = sub.add_parser("demo", help="build a small synthetic database for UI testing")
+    demo.set_defaults(func=_cmd_demo)
+
+    serve = sub.add_parser("serve", help="run the web server")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--reload", action="store_true")
+    serve.set_defaults(func=_cmd_serve)
+
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

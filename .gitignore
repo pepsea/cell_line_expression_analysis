@@ -1,0 +1,19 @@
+# Built databases - rebuilt from the HPA download files, never committed.
+data/*.sqlite
+data/*.sqlite-wal
+data/*.sqlite-shm
+
+# Raw HPA downloads, if placed inside the repo.
+*.tsv
+*.tsv.zip
+*.tsv.gz
+!tests/**/*.tsv
+!hpa_cellexp/reference/*.tsv
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.DS_Store
+!data/.gitkeep

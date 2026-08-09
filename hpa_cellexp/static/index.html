@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ヒト細胞株 遺伝子発現エクスプローラー | HPA Cell Line Expression</title>
+<meta name="description" content="Human Protein Atlas の細胞株 RNA 発現データを用いて、複数遺伝子の細胞株別発現量を由来臓器・種・疾患で絞り込みながら比較します。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23cde2fb'/%3E%3Crect x='2' y='2' width='5' height='5' fill='%230d366b'/%3E%3Crect x='9' y='2' width='5' height='5' fill='%236da7ec'/%3E%3Crect x='2' y='9' width='5' height='5' fill='%233987e5'/%3E%3Crect x='9' y='9' width='5' height='5' fill='%23184f95'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div>
+    <h1>ヒト細胞株 遺伝子発現エクスプローラー</h1>
+    <p class="sub">Human Protein Atlas cell line RNA-seq · 遺伝子ごとの細胞株発現プロファイル</p>
+  </div>
+  <div class="topbar-spacer"></div>
+  <span class="dataset-chip" id="datasetChip">データセット読込中…</span>
+  <button class="icon-button" id="themeToggle" type="button" title="表示テーマを切り替え" aria-label="表示テーマを切り替え">◐</button>
+</header>
+
+<div class="demo-banner" id="demoBanner" role="alert">
+  <span>⚠️ デモデータ表示中</span>
+  <span style="font-weight:400">
+    発現値は動作確認用の<strong>合成値</strong>です。実データではありません。実データは
+    <code>python -m hpa_cellexp build</code> で取り込んでください。
+  </span>
+</div>
+
+<main class="layout">
+
+  <!-- ================= sidebar ================= -->
+  <form class="panel sidebar" id="controls" autocomplete="off">
+
+    <section class="section">
+      <h2>1. 遺伝子を入力</h2>
+      <textarea id="geneInput" name="genes"
+        placeholder="例:&#10;EGFR, ERBB2, TP53&#10;ENSG00000146648"
+        aria-describedby="geneHint"></textarea>
+      <p class="hint" id="geneHint">
+        遺伝子シンボルまたは Ensembl ID。カンマ・空白・改行区切りで<strong>複数入力可</strong>。
+      </p>
+      <div class="chips" id="geneChips"></div>
+    </section>
+
+    <section class="section">
+      <h2>2. 発現量指標</h2>
+      <div class="metric-group" id="metricGroup" role="radiogroup" aria-label="発現量指標"></div>
+      <p class="hint">nTPM = 正規化 TPM（細胞株間の比較に推奨）</p>
+    </section>
+
+    <section class="section">
+      <h2>3. 細胞株を絞り込む</h2>
+
+      <div class="match-count" id="matchCount">対象細胞株: <strong>—</strong></div>
+
+      <label class="hint" for="speciesList" style="display:block;margin:0 0 6px">種 (species)</label>
+      <div class="facet-list" id="speciesList" style="max-height:110px"></div>
+
+      <label class="hint" for="organSearch" style="display:block;margin:14px 0 6px">由来臓器 (organ)</label>
+      <input class="facet-search" type="search" id="organSearch" placeholder="臓器名で検索…" aria-label="由来臓器を検索">
+      <div class="facet-list" id="organList"></div>
+      <div class="facet-actions">
+        <button type="button" data-facet="organ" data-action="all">すべて選択</button>
+        <button type="button" data-facet="organ" data-action="none">すべて解除</button>
+      </div>
+
+      <label class="hint" for="diseaseSearch" style="display:block;margin:14px 0 6px">疾患 (disease)</label>
+      <input class="facet-search" type="search" id="diseaseSearch" placeholder="疾患名で検索…" aria-label="疾患を検索">
+      <div class="facet-list" id="diseaseList"></div>
+      <div class="facet-actions">
+        <button type="button" data-facet="disease" data-action="none">すべて解除</button>
+      </div>
+
+      <label class="hint" for="cellQuery" style="display:block;margin:14px 0 6px">細胞株名で検索</label>
+      <input type="search" id="cellQuery" placeholder="例: HELA, NCI-H" aria-label="細胞株名で検索">
+    </section>
+
+    <section class="section">
+      <button class="button" type="submit" id="runButton">発現を解析する</button>
+      <p class="hint" id="runHint">遺伝子を入力してください。</p>
+    </section>
+  </form>
+
+  <!-- ================= results ================= -->
+  <section class="panel results" aria-live="polite">
+    <div class="toolbar">
+      <div class="tabs" role="tablist" aria-label="表示形式">
+        <button type="button" role="tab" id="tabHeatmap" aria-controls="viewHeatmap" aria-selected="true">ヒートマップ</button>
+        <button type="button" role="tab" id="tabTable" aria-controls="viewTable" aria-selected="false">テーブル</button>
+      </div>
+
+      <label for="sortSelect">並び順</label>
+      <select id="sortSelect">
+        <option value="organ">由来臓器 → 細胞株名</option>
+        <option value="name">細胞株名</option>
+        <option value="value-desc">発現量が高い順</option>
+        <option value="value-asc">発現量が低い順</option>
+      </select>
+
+      <label for="sortGene" id="sortGeneLabel" hidden>基準遺伝子</label>
+      <select id="sortGene" hidden></select>
+
+      <label for="scaleSelect">色スケール</label>
+      <select id="scaleSelect">
+        <option value="global">全遺伝子共通</option>
+        <option value="row">遺伝子ごとに正規化</option>
+      </select>
+
+      <div class="topbar-spacer"></div>
+      <button class="button secondary" type="button" id="downloadButton" disabled>TSV をダウンロード</button>
+    </div>
+
+    <div class="legend" id="legend" hidden>
+      <div class="legend-scale">
+        <div class="legend-bar" id="legendBar"></div>
+        <div class="legend-ticks" id="legendTicks"></div>
+      </div>
+      <span id="legendUnit">発現量</span>
+      <span class="legend-key"><span class="legend-swatch" style="background:var(--zero)"></span>0（発現なし）</span>
+      <span class="legend-key"><span class="legend-swatch" style="background:var(--nodata);border-style:dashed"></span>データなし</span>
+      <span class="legend-key">対数スケール · 細胞株名クリックで Cellosaurus へ</span>
+    </div>
+
+    <div id="viewHeatmap" role="tabpanel" aria-labelledby="tabHeatmap">
+      <div class="state" id="placeholder">
+        遺伝子を入力して「発現を解析する」を押してください。
+      </div>
+      <div class="hm-viewport" id="hmViewport" hidden tabindex="0">
+        <div class="hm-sizer" id="hmSizer"></div>
+        <canvas class="hm-canvas" id="hmCanvas"></canvas>
+        <div class="hm-tooltip" id="hmTooltip" role="status"></div>
+      </div>
+    </div>
+
+    <div id="viewTable" role="tabpanel" aria-labelledby="tabTable" hidden>
+      <p class="hint" id="tableNotice" style="margin:0;padding:10px 14px;border-bottom:1px solid var(--grid)" hidden></p>
+      <div class="table-wrap">
+        <table class="matrix" id="matrixTable">
+          <caption class="sr-only">遺伝子ごとの細胞株別発現量</caption>
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="/assets/app.js"></script>
+</body>
+</html>

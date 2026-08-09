@@ -1,0 +1,7 @@
+# Runtime dependencies for the web app.
+# Ingestion (python -m hpa_cellexp build) needs nothing beyond the standard library.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+
+# Test-only:
+#   pip install pytest httpx

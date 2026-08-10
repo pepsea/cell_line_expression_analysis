@@ -11,7 +11,7 @@
 // A stale Docker image or a cached script is otherwise invisible: the page
 // looks fine and simply behaves like an older build, which is impossible to
 // tell apart from a bug.  Keep in step with hpa_cellexp/__init__.py.
-const APP_VERSION = '1.13.1';
+const APP_VERSION = '1.14.0';
 
 // ---------------------------------------------------------------------------
 // state
@@ -34,6 +34,7 @@ const state = {
   organRank: {},     // {"Lung": 14} - canonical (anatomical) display order
   tableDirty: true,  // the table view is built lazily - it is the expensive one
   tableToken: 0,     // cancels a chunked table render that a re-sort superseded
+  matchCount: null,  // shown on the toggle while the filter panel is closed
 };
 
 // The table shows every matching cell line.  It used to stop at 500, which
@@ -199,9 +200,48 @@ async function init() {
   setupHeatmapEvents();
   window.addEventListener('resize', debounce(renderHeatmap, 120));
 
+  $('sidebarToggle').addEventListener('click', () => setSidebar(!sidebarOpen()));
+  setSidebar(localStorage.getItem(SIDEBAR_KEY) !== 'closed', { persist: false });
+
   restoreFromHash();
   refreshMatchCount();
   updateGeneChips();
+}
+
+const SIDEBAR_KEY = 'hpa-cellexp-sidebar';
+
+function sidebarOpen() {
+  return !$('controls').hidden;
+}
+
+/** Show or hide the filter panel.
+ *
+ *  Collapsing it hands the whole width to the sheet, which is the point - so
+ *  the heatmap has to be re-measured afterwards, and only once the browser has
+ *  applied the new grid.  While it is closed the button carries the match
+ *  count, because the count itself lives inside the panel.
+ */
+function setSidebar(open, { persist = true } = {}) {
+  const panel = $('controls');
+  const button = $('sidebarToggle');
+  panel.hidden = !open;
+  document.querySelector('.layout').classList.toggle('no-sidebar', !open);
+  button.setAttribute('aria-expanded', String(open));
+  button.querySelector('.chev').textContent = open ? '◀' : '▶';
+  button.title = open ? '絞り込みパネルを隠す' : '絞り込みパネルを表示';
+  updateSidebarCount();
+  if (persist) localStorage.setItem(SIDEBAR_KEY, open ? 'open' : 'closed');
+  // The grid column only exists after a layout pass.
+  requestAnimationFrame(() => renderHeatmap());
+}
+
+/** The match count, mirrored onto the toggle while the panel is closed. */
+function updateSidebarCount() {
+  const badge = $('sidebarCount');
+  if (!badge) return;
+  badge.textContent = sidebarOpen() || state.matchCount === null
+    ? ''
+    : state.matchCount.toLocaleString();
 }
 
 /** "LUAD 肺腺がん (\u03c1 0.79)" - one TCGA cohort a cell line resembles. */
@@ -447,7 +487,9 @@ const refreshMatchCount = debounce(async () => {
   params.set('limit', '1');
   try {
     const data = await fetchJSON('/api/cell-lines?' + params.toString());
+    state.matchCount = data.total;
     $('matchCount').innerHTML = `対象細胞株: <strong>${data.total.toLocaleString()}</strong> / ${state.meta.cellLineCount.toLocaleString()}`;
+    updateSidebarCount();
   } catch (err) {
     $('matchCount').textContent = '対象細胞株: 取得できませんでした';
   }

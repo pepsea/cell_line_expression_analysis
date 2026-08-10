@@ -93,6 +93,12 @@
   <!-- ================= results ================= -->
   <section class="panel results" aria-live="polite">
     <div class="toolbar">
+      <button type="button" class="sidebar-toggle" id="sidebarToggle"
+              aria-controls="controls" aria-expanded="true"
+              title="絞り込みパネルの表示/非表示">
+        <span class="chev" aria-hidden="true">◀</span><span class="label">絞り込み</span><span class="count" id="sidebarCount"></span>
+      </button>
+
       <div class="tabs" role="tablist" aria-label="表示形式">
         <button type="button" role="tab" id="tabHeatmap" aria-controls="viewHeatmap" aria-selected="true">ヒートマップ</button>
         <button type="button" role="tab" id="tabTable" aria-controls="viewTable" aria-selected="false">テーブル</button>
@@ -156,6 +162,6 @@
 
 <!-- ?v= is a cache buster: bump it with hpa_cellexp/__init__.py so an updated
      server cannot be masked by a script the browser already has. -->
-<script src="/assets/app.js?v=1.13.1"></script>
+<script src="/assets/app.js?v=1.14.0"></script>
 </body>
 </html>

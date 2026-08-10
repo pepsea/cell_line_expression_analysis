@@ -107,6 +107,9 @@ a { color: var(--accent); }
 
 /* --- app frame ---------------------------------------------------------- */
 
+/* Scrolls away with the page.  The title is read once; the vertical space is
+   wanted for the sheet every second after that.  `relative` stays because the
+   source panel is positioned against this element. */
 .topbar {
   display: flex;
   align-items: center;
@@ -114,8 +117,7 @@ a { color: var(--accent); }
   padding: 14px 22px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 40;
 }
 
@@ -259,10 +261,38 @@ button.dataset-chip[aria-expanded="true"] { border-color: var(--accent); color: 
 
 .sidebar {
   position: sticky;
-  top: 76px;
-  max-height: calc(100vh - 96px);
+  /* Nothing is pinned above it any more, so it may ride at the very top. */
+  top: 12px;
+  max-height: calc(100vh - 24px);
   overflow-y: auto;
   padding: 4px 0 12px;
+}
+.sidebar[hidden] { display: none; }
+
+/* Collapsed: the filters step out of the grid entirely and the sheet takes
+   the whole width.  The toggle in the toolbar is the way back. */
+.layout.no-sidebar { grid-template-columns: minmax(0, 1fr); }
+
+.sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-sunk);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--ink-2);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 10px;
+  white-space: nowrap;
+}
+.sidebar-toggle:hover { color: var(--ink); border-color: var(--axis); }
+.sidebar-toggle .chev { font-size: 10px; color: var(--ink-muted); }
+.sidebar-toggle .count {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-muted);
+  font-size: 12px;
 }
 
 .section { padding: 14px 16px; border-bottom: 1px solid var(--grid); }

@@ -600,6 +600,67 @@ class UiTests(unittest.TestCase):
         self.assertEqual(len(hepg2), 1)
         self.assertIn("LIHC (rho=", hepg2[0])
 
+    def test_the_filter_panel_collapses_and_gives_the_room_to_the_sheet(self):
+        self.run_genes("ALB, EGFR, GFAP")
+        wide_before = self.page.eval_on_selector(
+            "#hmSizer", "e => parseFloat(e.style.width)"
+        )
+        self.assertFalse(self.page.eval_on_selector("#controls", "e => e.hidden"))
+
+        self.page.click("#sidebarToggle")
+        self.page.wait_for_timeout(500)
+        self.assertTrue(self.page.eval_on_selector("#controls", "e => e.hidden"))
+        self.assertEqual(
+            self.page.get_attribute("#sidebarToggle", "aria-expanded"), "false"
+        )
+        wide_after = self.page.eval_on_selector(
+            "#hmSizer", "e => parseFloat(e.style.width)"
+        )
+        self.assertGreater(wide_after, wide_before, "the sheet must reclaim the space")
+
+        self.page.click("#sidebarToggle")
+        self.page.wait_for_timeout(500)
+        self.assertFalse(self.page.eval_on_selector("#controls", "e => e.hidden"))
+        self.assertEqual(
+            self.page.eval_on_selector("#hmSizer", "e => parseFloat(e.style.width)"),
+            wide_before,
+        )
+
+    def test_the_collapsed_panel_still_reports_the_match_count(self):
+        """The count lives inside the panel, so hiding it would hide the one
+        number that says what the filters are doing."""
+        self.run_genes("GAPDH")
+        self.page.wait_for_timeout(500)
+        self.assertEqual(self.page.inner_text("#sidebarCount").strip(), "")
+        self.page.click("#sidebarToggle")
+        self.page.wait_for_timeout(500)
+        total = self.page.evaluate("() => state.meta.cellLineCount.toLocaleString()")
+        self.assertEqual(self.page.inner_text("#sidebarCount").strip(), total)
+
+    def test_the_collapsed_state_survives_a_reload(self):
+        self.page.click("#sidebarToggle")
+        self.page.wait_for_timeout(300)
+        self.page.reload(wait_until="networkidle")
+        self.page.wait_for_timeout(400)
+        self.assertTrue(self.page.eval_on_selector("#controls", "e => e.hidden"))
+        self.page.click("#sidebarToggle")
+        self.page.wait_for_timeout(300)
+        self.page.reload(wait_until="networkidle")
+        self.page.wait_for_timeout(400)
+        self.assertFalse(self.page.eval_on_selector("#controls", "e => e.hidden"))
+
+    def test_the_title_bar_scrolls_away(self):
+        """It is read once; the vertical space matters on every scroll after."""
+        self.assertEqual(
+            self.page.eval_on_selector(".topbar", "e => getComputedStyle(e).position"),
+            "relative",
+        )
+        # The source panel hangs off the header, so it must still be anchored.
+        self.page.click("#datasetChip")
+        self.page.wait_for_timeout(200)
+        box = self.page.eval_on_selector("#sourcePanel", "e => e.getBoundingClientRect().top")
+        self.assertLess(box, 200, "the source panel must stay under the chip")
+
     def test_the_table_shows_every_matching_cell_line(self):
         """It used to stop at 500 rows, so cell lines went missing from the
         table depending on the sort order."""

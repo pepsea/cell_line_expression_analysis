@@ -124,8 +124,15 @@ columns (5): Cell line, Cellosaurus ID, Primary tissue, Disease, Species
   → --metadata に使えます
 ```
 
-`--metadata に使えます` と出たファイルを次のステップで指定します。どれも該当しない
-場合は、`--cellosaurus` に頼るか、列を `--organ-column` などで明示指定してください。
+`--metadata に使えます` と出たファイルを次のステップで指定します。
+
+**HPA のダウンロードにアノテーションファイルが含まれないこともあります。**
+その場合 `--metadata` は省略し、`cellosaurus.txt` に由来臓器を任せてください。
+Cellosaurus はデータ由来なので `※参考値` は付かず、TCGA 類似度からの推定より
+はるかに正確です。
+
+`cellosaurus.txt` は区切り記号の無いレコード形式なので `inspect` では
+`--cellosaurus に使えます` と表示されます（列の一覧は出ません）。
 
 ### 3.4 データベースを作る
 
@@ -145,12 +152,13 @@ docker compose run --rm --build build \
 
 `--cellosaurus` は不要です。`.env` の設定から `/cellosaurus/cellosaurus.txt` が
 既定値として使われます（[データフォルダの設定](#データフォルダの設定)）。
-別名のファイルなら明示してください。
+**`cellosaurus.txt` を HPA のファイルと同じフォルダに置いている場合**や、
+別名のファイルの場合は明示してください。
 
 ```bash
 docker compose run --rm --build build \
   --expression  /source/rna_celline.tsv.zip \
-  --cellosaurus /cellosaurus/cellosaurus_2026-01.txt
+  --cellosaurus /source/cellosaurus.txt
 ```
 
 `.env` の `HPA_CELLOSAURUS_NAME` にファイル名を書いておく方法もあります。

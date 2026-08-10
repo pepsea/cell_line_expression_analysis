@@ -16,7 +16,7 @@ import zipfile
 from contextlib import contextmanager
 from typing import Iterator, List, Optional, Sequence, Tuple
 
-__all__ = ["open_table", "read_rows", "describe"]
+__all__ = ["open_table", "read_rows", "describe", "looks_like_cellosaurus"]
 
 # HPA gene rows are long-ish but well under the default limit; raise it anyway
 # so a stray quoted field can never abort a multi-hour ingest.
@@ -89,8 +89,31 @@ def read_rows(
         yield [h.strip() for h in header], reader
 
 
+def looks_like_cellosaurus(path: str) -> bool:
+    """Is this the Cellosaurus flat file rather than a table?
+
+    It is not delimited at all - "ID   HeLa" / "AC   CVCL_0030" records
+    separated by //  - so column detection reports nothing usable and the file
+    reads as junk.  It is in fact the single most useful input for 由来臓器.
+    """
+    try:
+        with open(path, "rt", encoding="utf-8", errors="replace") as handle:
+            for _ in range(400):
+                line = handle.readline()
+                if not line:
+                    break
+                if line.startswith("AC   CVCL_") or line.startswith("ID   "):
+                    return True
+    except OSError:
+        return False
+    return False
+
+
 def describe(path: str, member: Optional[str] = None, limit: int = 3) -> str:
     """Return a short human-readable preview - used by ``inspect`` CLI command."""
+    if looks_like_cellosaurus(path):
+        return ("Cellosaurus flat file (ID / AC / CC ... // レコード形式)\n"
+                "  → --cellosaurus に使えます")
     lines = []
     for header, rows in read_rows(path, member):
         lines.append("columns ({}): {}".format(len(header), ", ".join(header)))

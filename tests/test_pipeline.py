@@ -930,6 +930,19 @@ class InspectRoleTests(unittest.TestCase):
             with self.subTest(filename=filename):
                 self.assertIn(filename, text)
 
+    def test_the_cellosaurus_flat_file_is_recognised(self):
+        """It is not delimited, so column detection reported "no usable
+        fields" on the single most useful input for 由来臓器."""
+        write(self.tmp.name, "cellosaurus.txt",
+              "-------------------------------------\n"
+              "        CALIPHO group at the SIB\n"
+              "-------------------------------------\n"
+              "ID   HeLa\nAC   CVCL_0030\n"
+              "CC   Derived from site: In situ; Uterine cervix.\n//\n")
+        text = self._inspect(os.path.join(self.tmp.name, "cellosaurus.txt"))
+        self.assertIn("--cellosaurus に使えます", text)
+        self.assertNotIn("使える列なし", text)
+
     def test_an_unreadable_file_does_not_stop_the_scan(self):
         with open(os.path.join(self.tmp.name, "notes.txt"), "wb") as handle:
             handle.write(b"\xff\xfe not a table at all")

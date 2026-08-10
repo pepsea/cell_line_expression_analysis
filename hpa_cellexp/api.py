@@ -219,7 +219,15 @@ def create_app(db_path: str = DEFAULT_DB_PATH) -> FastAPI:
 
         @app.get("/", include_in_schema=False)
         def index() -> FileResponse:
-            return FileResponse(os.path.join(_STATIC_DIR, "index.html"))
+            # no-cache means revalidate, not "never store".  Without it the
+            # browser is free to reuse index.html on its own judgement - and
+            # index.html is what carries the ?v= cache buster, so a stale copy
+            # keeps requesting the previous app.js for ever.  The document that
+            # names the version must never be the stale one.
+            return FileResponse(
+                os.path.join(_STATIC_DIR, "index.html"),
+                headers={"Cache-Control": "no-cache, must-revalidate"},
+            )
 
     return app
 

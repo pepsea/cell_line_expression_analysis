@@ -950,6 +950,37 @@ class InspectRoleTests(unittest.TestCase):
         self.assertIn("rna_celline.tsv", text)
 
 
+class StaticCachingTests(unittest.TestCase):
+    """index.html carries the ?v= cache buster, so it must not be the file
+    that goes stale - otherwise the buster never changes and the browser keeps
+    the previous app.js indefinitely."""
+
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+
+        from hpa_cellexp.demo import build_demo_database
+
+        cls.tmp = tempfile.TemporaryDirectory()
+        path = os.path.join(cls.tmp.name, "demo.sqlite")
+        build_demo_database(path)
+        cls.client = TestClient(create_app(path))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_the_entry_document_is_revalidated(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("no-cache", response.headers.get("cache-control", ""))
+
+    def test_the_entry_document_carries_the_current_version(self):
+        from hpa_cellexp import __version__
+
+        self.assertIn("app.js?v={}".format(__version__), self.client.get("/").text)
+
+
 class SpeciesTests(unittest.TestCase):
     """Regression: the species facet listed ヒト and Homo sapiens separately."""
 

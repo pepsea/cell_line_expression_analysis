@@ -259,6 +259,39 @@ class VersionTests(unittest.TestCase):
         self.assertIsNotNone(buster, "app.js is loaded without a cache buster")
         self.assertEqual(buster.group(1), __version__)
 
+    def test_readme_shell_commands_carry_no_trailing_comments(self):
+        """zsh does not treat # as a comment in an interactive shell, so a
+        pasted "docker compose ps   # 状態" fails with a baffling error.  Put
+        the explanation in prose, not on the command line."""
+        readme = read("README.md")
+        offenders = []
+        in_shell = False
+        for number, line in enumerate(readme.splitlines(), start=1):
+            if line.startswith("```"):
+                in_shell = line.startswith("```bash")
+                continue
+            if not in_shell or not line.strip() or line.lstrip().startswith("#"):
+                continue
+            if "#" in line:
+                offenders.append("{}: {}".format(number, line.strip()))
+        self.assertEqual(offenders, [], "trailing # in a shell block:\n" + "\n".join(offenders))
+
+    def test_readme_documents_the_docker_workflow(self):
+        """The Docker path is the one people actually deploy with."""
+        readme = read("README.md")
+        for needed in (
+            "docker compose run --rm --build build",
+            "--tcga       /source/rna_cell_line_tcga_comparison.tsv.zip",
+            "docker compose run --rm inspect /source/",
+            "docker compose run --rm build --version",
+            "docker compose up -d",
+            "HPA_REFERENCE_DIR",
+            "HPA_CELLOSAURUS_DIR",
+            "proteinatlas.org/about/download",
+        ):
+            with self.subTest(fragment=needed):
+                self.assertIn(needed, readme)
+
     def test_readme_documents_the_stale_build_failure(self):
         readme = read("README.md")
         self.assertIn("unrecognized arguments", readme)

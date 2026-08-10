@@ -33,9 +33,11 @@ FastAPI / uvicorn は Web サーバを立てるときにだけ必要です。
 実データを取り込む前に、UI の動作を確認できます。
 
 ```bash
-python3 -m hpa_cellexp demo      # 合成データの小さな DB を作成
-python3 -m hpa_cellexp serve     # http://127.0.0.1:8000
+python3 -m hpa_cellexp demo
+python3 -m hpa_cellexp serve
 ```
+
+合成データの小さな DB を作り、http://127.0.0.1:8000 で開きます。
 
 > ⚠️ **デモの発現値は合成値です。** 細胞株名・由来臓器・Cellosaurus ID は実在のもの
 > ですが、数値は動作確認のための擬似乱数であり、実測値ではありません。
@@ -45,22 +47,122 @@ python3 -m hpa_cellexp serve     # http://127.0.0.1:8000
 
 サーバに常設する場合はこちらが簡単です。Python のインストールも不要です。
 
+> 💡 以下のコマンドに**行末コメントは付けていません**。zsh（macOS の既定シェル）は
+> 対話シェルで `#` をコメントとして扱わないため、`# ...` を付けたままコピーすると
+> `grep: #: No such file or directory` のようなエラーになります。
+
+### 3.1 入手するファイル
+
+HPA のダウンロードページから取得します。`.zip` のまま使えます（解凍不要）。
+
+https://www.proteinatlas.org/about/download
+
+| ファイル | 必須度 |
+|---|---|
+| `rna_celline.tsv.zip` | **必須**（発現マトリクス） |
+| `cell_line_analysis_data.tsv.zip` | 推奨（細胞株のアノテーション） |
+| `rna_cell_line_tcga_comparison.tsv.zip` | 任意（[類似がん種](#類似がん種-tcga-とは)の表示に使用） |
+
+`cellosaurus.txt` だけは配布元が別です（約 200 MiB）。
+
+https://ftp.expasy.org/databases/cellosaurus/
+
+**TCGA / GDC 本体からデータを取る必要はありません。** 必要なのは「細胞株 × TCGA
+コホートの類似度」で、HPA が計算済みの表として配布しています。
+
+### 3.2 置き場を決める
+
 ```bash
-# 1) HPA のファイルを置いたディレクトリを指定して、DB を作る（初回のみ）
-export HPA_SOURCE_DIR=/path/to/hpa-files
-# --build を付けると、コード更新後でも必ず最新のイメージが使われます
+cp .env.example .env
+```
+
+`.env` の3つを実際のフォルダに合わせます。既定のままならリポジトリ直下が使われます。
+
+```
+HPA_SOURCE_DIR=./hpa-source
+HPA_REFERENCE_DIR=./reference
+HPA_CELLOSAURUS_DIR=./cellosaurus
+```
+
+HPA の配布ファイルを `HPA_SOURCE_DIR` に、`cellosaurus.txt` を
+`HPA_CELLOSAURUS_DIR` に置きます。
+
+```bash
+mkdir -p hpa-source cellosaurus
+ls hpa-source cellosaurus
+```
+
+### 3.3 列を確認する（任意）
+
+```bash
+docker compose run --rm inspect /source/rna_cell_line_tcga_comparison.tsv.zip
+```
+
+`Cell line` と `TCGA cancer` にあたる列があれば取り込めます。
+
+### 3.4 データベースを作る
+
+```bash
+docker compose run --rm --build build \
+  --expression /source/rna_celline.tsv.zip \
+  --metadata   /source/cell_line_analysis_data.tsv.zip \
+  --tcga       /source/rna_cell_line_tcga_comparison.tsv.zip \
+  --release    "HPA v24"
+```
+
+パスは**コンテナ内から見たもの**です。ホストの `HPA_SOURCE_DIR` が `/source` に
+マウントされているので、頭を `/source/` に置き換えます。
+
+`--cellosaurus` は不要です。`.env` の設定から `/cellosaurus/cellosaurus.txt` が
+既定値として使われます（[データフォルダの設定](#データフォルダの設定)）。
+別名のファイルなら明示してください。
+
+```bash
 docker compose run --rm --build build \
   --expression  /source/rna_celline.tsv.zip \
-  --metadata    /source/cell_line_analysis_data.tsv.zip \
-  --tcga        /source/rna_cell_line_tcga_comparison.tsv.zip \
-  --cellosaurus /source/cellosaurus.txt \
-  --release     "HPA v24"
-
-# 2) 常設起動（以後、ホスト再起動時も自動で立ち上がります）
-docker compose up -d
-
-#    http://localhost:8000
+  --cellosaurus /cellosaurus/cellosaurus_2026-01.txt
 ```
+
+`--build` はイメージを作り直すためのものです。**コード更新後にこれを忘れると
+古いイメージのまま動きます。**
+
+### 3.5 常設起動
+
+```bash
+docker compose up -d
+```
+
+http://localhost:8000 で開きます。以後はホスト再起動時も自動で立ち上がります。
+
+### 3.6 取り込めたか確認する
+
+取り込み時の出力に `TCGA rows` が出ます。0 でなければ類似がん種が入っています。
+
+```bash
+docker compose ps
+docker compose run --rm organs --grep hepg2
+docker compose run --rm build --version
+```
+
+`--version` は実際に使われているデータベース・参照テーブル・cellosaurus.txt の
+パスを表示します。想定と違えば `.env` かマウントの問題です。
+
+### 3.7 データを更新する
+
+```bash
+docker compose run --rm --build build --expression /source/rna_celline.tsv.zip ...
+docker compose restart web
+```
+
+コードだけ更新した場合はこちらです。
+
+```bash
+git pull
+docker compose build
+docker compose up -d --force-recreate
+```
+
+画面右上のバッジのバージョンが上がっていれば反映されています。
 
 ### ポートを変更する
 
@@ -69,9 +171,11 @@ docker compose up -d
 
 ```bash
 cp .env.example .env
-# .env の HPA_CELLEXP_PORT=8000 を書き換える（例: 9000）
-docker compose up -d          # → http://localhost:9000
+docker compose up -d
 ```
+
+`.env` の `HPA_CELLEXP_PORT=8000` を書き換えてから起動します。`9000` にすれば
+http://localhost:9000 で開きます。
 
 1回だけなら環境変数でも構いません:
 
@@ -137,16 +241,17 @@ python3 -m hpa_cellexp serve --host 0.0.0.0 --port 9000
 
 ### 運用コマンド
 
-```bash
-docker compose logs -f web                       # ログ
-docker compose ps                                # 状態（healthy かどうか）
-docker compose up -d --build                     # コード更新後の再デプロイ
-docker compose run --rm --build build ...        # 取り込みも --build 付きが安全
-docker compose run --rm build --version          # 動いているバージョンを確認
-docker compose run --rm demo                     # デモ DB に差し替え
-docker compose run --rm organs --grep caco       # 由来臓器の判定根拠を確認
-docker compose run --rm inspect /source/xxx.zip  # 入力ファイルの列を確認
-```
+| コマンド | 用途 |
+|---|---|
+| `docker compose logs -f web` | ログ |
+| `docker compose ps` | 状態（healthy かどうか） |
+| `docker compose up -d --build` | コード更新後の再デプロイ |
+| `docker compose run --rm --build build ...` | 取り込み（`--build` 付きが安全） |
+| `docker compose run --rm build --version` | 動いているバージョンと使用中のパス |
+| `docker compose run --rm demo` | デモ DB に差し替え |
+| `docker compose run --rm organs --grep caco` | 由来臓器の判定根拠を確認 |
+| `docker compose run --rm organs --organ Colon` | その臓器の細胞株一覧 |
+| `docker compose run --rm inspect /source/xxx.zip` | 入力ファイルの列を確認 |
 
 データを更新するときは `build` を実行してから `docker compose restart web` してください。
 
@@ -243,7 +348,7 @@ columns in cell_line_analysis_data.tsv:
 その場合は列を明示指定してください:
 
 ```bash
-python3 -m hpa_cellexp inspect path/to/cell_line_analysis_data.tsv.zip   # 列を確認
+python3 -m hpa_cellexp inspect path/to/cell_line_analysis_data.tsv.zip
 python3 -m hpa_cellexp build --expression ... --metadata ... \
     --cell-line-column "Cell line name" \
     --organ-column     "Site of origin" \
@@ -267,14 +372,17 @@ python3 -m hpa_cellexp build --expression ... --metadata ... \
 
 ```bash
 mkdir -p /srv/hpa/reference
-cp hpa_cellexp/reference/tcga_organ.tsv /srv/hpa/reference/   # 編集して使う
+cp hpa_cellexp/reference/tcga_organ.tsv /srv/hpa/reference/
 
 export HPA_CELLEXP_REFERENCE_DIR=/srv/hpa/reference
 export HPA_CELLEXP_CELLOSAURUS=/srv/hpa/cellosaurus/cellosaurus.txt
 
-python3 -m hpa_cellexp --version        # 実際に使われている場所を表示
-python3 -m hpa_cellexp build --expression rna_celline.tsv.zip   # --cellosaurus は不要
+python3 -m hpa_cellexp --version
+python3 -m hpa_cellexp build --expression rna_celline.tsv.zip
 ```
+
+1行目が実際に使われている場所を表示します。2行目に `--cellosaurus` が無いのは、
+上で設定済みだからです。
 
 `--version` は解決後のパスを表示するので、「どのファイルが読まれているのか」は
 これで確認できます。
@@ -585,10 +693,12 @@ docker-compose.yml  web（常設）＋ build / demo / organs / inspect（単発�
 ## 8. テスト
 
 ```bash
-python3 tests/test_pipeline.py    # 取り込み・クエリ・API
-python3 tests/test_ui.py          # ブラウザ操作の回帰テスト
-python3 tests/test_deployment.py  # Dockerfile / compose の整合性
+python3 tests/test_pipeline.py
+python3 tests/test_ui.py
+python3 tests/test_deployment.py
 ```
+
+順に、取り込み・クエリ・API / ブラウザ操作の回帰 / Dockerfile・compose の整合性です。
 
 UI テストには Playwright が必要です（未インストールなら自動的にスキップされます）:
 
@@ -606,18 +716,22 @@ pip install playwright && playwright install chromium
 または古い Docker イメージが使われています。まず今動いているものを確認します:
 
 ```bash
-python3 -m hpa_cellexp --version          # 例: hpa_cellexp 1.2.0 (schema v3) from ...
-python3 -m hpa_cellexp build --help       # 使えるオプション一覧
+python3 -m hpa_cellexp --version
+python3 -m hpa_cellexp build --help
 ```
+
+`--version` はバージョンと使用中のパス、`build --help` は使えるオプション一覧です。
 
 - **Docker の場合**: `docker compose run` / `up` は**コードが変わってもイメージを
   作り直しません**。既存の `hpa-cellexp:latest` がそのまま使われます。
 
   ```bash
   git pull
-  docker compose build                  # ← これが必要
+  docker compose build
   docker compose run --rm --build build --expression ... --cellosaurus ...
   ```
+
+  真ん中の `docker compose build` が必要な行です。
 
   取り込みコマンドに `--build` を付けておけば、以後この問題は起きません。
 
@@ -669,9 +783,11 @@ Cellosaurus は15万株以上を収録しており、由来組織・Cellosaurus 
 その細胞株の臓器が**どこから決まったか**を表示できます。
 
 ```bash
-python -m hpa_cellexp organs --grep caco     # 名前で絞り込み
-python -m hpa_cellexp organs --organ Colon   # 臓器で絞り込み
+python -m hpa_cellexp organs --grep caco
+python -m hpa_cellexp organs --organ Colon
 ```
+
+`--grep` は名前で、`--organ` は臓器で絞り込みます。
 
 判定根拠はヒートマップのツールチップと、テーブルの「由来臓器」列のツールチップ
 にも出ます。優先順位は README 前半の「由来臓器はどこから来るか」を参照してください。

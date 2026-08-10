@@ -5,15 +5,71 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from typing import Optional
 
 from . import __version__
 from . import config
 from .config import DEFAULT_DB_PATH, SCHEMA_VERSION
 
 
+def _check_inputs(args: argparse.Namespace) -> Optional[str]:
+    """Verify every input file exists BEFORE the load starts.
+
+    The expression file takes ~90s and 24M rows to stream; discovering a typo
+    in --cellosaurus after all of that is the worst possible time to find out.
+
+    Returns an error message, or None when the run may proceed.  A cellosaurus
+    path that came from configuration rather than the command line is dropped
+    with a warning instead: it is a convenience default, and a machine that
+    has not downloaded the file yet should still be able to build.
+    """
+    missing = []
+    for flag, path in [("--expression", args.expression), ("--tcga", args.tcga)]:
+        if path and not os.path.exists(path):
+            missing.append((flag, path))
+    for path in args.metadata:
+        if not os.path.exists(path):
+            missing.append(("--metadata", path))
+
+    if args.cellosaurus and not os.path.exists(args.cellosaurus):
+        if args.cellosaurus_explicit:
+            missing.append(("--cellosaurus", args.cellosaurus))
+        else:
+            print(
+                "warning: cellosaurus file not found, continuing without it:\n"
+                "  {}\n"
+                "  (from HPA_CELLEXP_CELLOSAURUS - unset it, or pass "
+                "--cellosaurus PATH)".format(args.cellosaurus),
+                file=sys.stderr,
+            )
+            args.cellosaurus = None
+
+    if not missing:
+        return None
+
+    lines = ["入力ファイルが見つかりません / input file not found:"]
+    lines += ["  {:<14} {}".format(flag, path) for flag, path in missing]
+    if any(not os.path.isabs(p) for _, p in missing):
+        lines.append("\n相対パスは現在のディレクトリ ({}) からの解決です。".format(os.getcwd()))
+    if os.path.exists("/.dockerenv") or os.environ.get("HPA_CELLEXP_DB", "").startswith("/data/"):
+        lines.append(
+            "\nDocker で実行しています。パスは**コンテナ内から見たもの**です:\n"
+            "  HPA のファイル      /source/...        (ホストの HPA_SOURCE_DIR)\n"
+            "  cellosaurus.txt     /cellosaurus/...   (ホストの HPA_CELLOSAURUS_DIR)\n"
+            "ホスト側のパス (/Users/... など) をそのまま渡すことはできません。\n"
+            "マウントの中身を確認:  docker compose run --rm --entrypoint ls build -la /source /cellosaurus"
+        )
+    return "\n".join(lines)
+
+
 def _cmd_build(args: argparse.Namespace) -> int:
     from .columns import MissingColumn
     from .ingest import build_database
+
+    problem = _check_inputs(args)
+    if problem:
+        print(problem, file=sys.stderr)
+        return 1
 
     try:
         report = _run_build(args, build_database)
@@ -234,7 +290,7 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument(
         "--cellosaurus",
         metavar="FILE",
-        default=config.CELLOSAURUS_PATH,
+        default=None,
         help="cellosaurus.txt from https://ftp.expasy.org/databases/cellosaurus/ - "
              "fills in 由来臓器, Cellosaurus accession, species, sex, age and disease "
              "for cell lines the metadata does not cover "
@@ -298,8 +354,23 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def apply_config_defaults(args: argparse.Namespace) -> argparse.Namespace:
+    """Fill in what configuration supplies, and record what the user typed.
+
+    Whether --cellosaurus was actually given decides whether a missing file is
+    an error or a default that simply does not apply on this machine, so the
+    flag defaults to None and the config value is applied here.
+    """
+    if getattr(args, "command", None) == "build":
+        args.cellosaurus_explicit = args.cellosaurus is not None
+        if args.cellosaurus is None:
+            args.cellosaurus = config.CELLOSAURUS_PATH
+    return args
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    apply_config_defaults(args)
     # A folder given on the command line has to reach the reference readers
     # before anything asks them a question, and their caches may already be
     # warm from an earlier call in the same process.

@@ -197,6 +197,25 @@ class ComposeTests(unittest.TestCase):
         example = read(".env.example")
         self.assertIn("HPA_REFERENCE_DIR", example)
         self.assertIn("HPA_CELLOSAURUS_DIR", example)
+        self.assertIn("HPA_CELLOSAURUS_NAME", example)
+
+    def test_the_cellosaurus_setting_cannot_be_given_a_host_path(self):
+        """Regression: HPA_CELLOSAURUS_FILE looked like it wanted a path, so a
+        host path went in and reached the container verbatim - where it does
+        not exist.  It is now a bare filename joined onto the mount point, so
+        the container path cannot be wrong."""
+        for name, service in self.services.items():
+            with self.subTest(service=name):
+                value = service["environment"]["HPA_CELLEXP_CELLOSAURUS"]
+                self.assertTrue(
+                    value.startswith("/cellosaurus/"),
+                    "{}: must resolve inside the mount, got {}".format(name, value),
+                )
+        example = read(".env.example")
+        for line in example.splitlines():
+            if line.startswith("HPA_CELLOSAURUS_NAME="):
+                value = line.split("=", 1)[1]
+                self.assertNotIn("/", value, "this is a file name, not a path")
 
     def test_the_override_folders_are_not_baked_into_the_image(self):
         """A copy inside the image would shadow the bind mount."""

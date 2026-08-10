@@ -28,8 +28,10 @@ x-common: &common
     # packaged copy otherwise - per file, so overriding one is enough.
     HPA_CELLEXP_REFERENCE_DIR: /reference
     # Default for `build --cellosaurus`, so the path is configuration rather
-    # than something to retype.  Harmless if the file is not there.
-    HPA_CELLEXP_CELLOSAURUS: ${HPA_CELLOSAURUS_FILE:-/cellosaurus/cellosaurus.txt}
+    # than something to retype.  Skipped with a warning if the file is absent.
+    # HPA_CELLOSAURUS_NAME is the FILE NAME inside the mount, not a host path:
+    # the host folder is HPA_CELLOSAURUS_DIR and lands at /cellosaurus.
+    HPA_CELLEXP_CELLOSAURUS: /cellosaurus/${HPA_CELLOSAURUS_NAME:-cellosaurus.txt}
   volumes:
     # Named volume: no host uid/gid juggling, and it survives `down`/rebuilds.
     # To keep the database on the host instead, replace with a bind mount and
@@ -62,7 +64,7 @@ services:
       # from x-common has to be repeated here - not merged.
       HPA_CELLEXP_DB: /data/hpa_cellexp.sqlite
       HPA_CELLEXP_REFERENCE_DIR: /reference
-      HPA_CELLEXP_CELLOSAURUS: ${HPA_CELLOSAURUS_FILE:-/cellosaurus/cellosaurus.txt}
+      HPA_CELLEXP_CELLOSAURUS: /cellosaurus/${HPA_CELLOSAURUS_NAME:-cellosaurus.txt}
       # Pinned: the container-internal port is the right-hand side of the
       # ports mapping below.  Left unset it would inherit HPA_CELLEXP_PORT from
       # .env, move the listener, and stop matching the mapping.

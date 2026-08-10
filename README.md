@@ -123,8 +123,33 @@ docker compose run --rm --build build \
   --cellosaurus /cellosaurus/cellosaurus_2026-01.txt
 ```
 
+`.env` の `HPA_CELLOSAURUS_NAME` にファイル名を書いておく方法もあります。
+**ホスト側のパスではなく、フォルダ内のファイル名だけ**です
+（フォルダは `HPA_CELLOSAURUS_DIR`）。
+
 `--build` はイメージを作り直すためのものです。**コード更新後にこれを忘れると
 古いイメージのまま動きます。**
+
+入力ファイルは**読み込みを始める前に**全部チェックします。見つからないものが
+あればその場で止まり、24,000,000 行を読み終えてから落ちることはありません。
+
+```
+入力ファイルが見つかりません / input file not found:
+  --expression   /Users/you/Drive/rna_celline.tsv.zip
+
+Docker で実行しています。パスは**コンテナ内から見たもの**です:
+  HPA のファイル      /source/...        (ホストの HPA_SOURCE_DIR)
+  cellosaurus.txt     /cellosaurus/...   (ホストの HPA_CELLOSAURUS_DIR)
+```
+
+マウントに何が見えているかはこれで確認できます。
+
+```bash
+docker compose run --rm --entrypoint ls build -la /source /cellosaurus
+```
+
+なお `HPA_CELLEXP_CELLOSAURUS` で設定したファイルが**無い場合は警告だけ出して
+続行**します（明示的に `--cellosaurus` を渡した場合はエラーです）。
 
 ### 3.5 常設起動
 
@@ -225,7 +250,7 @@ python3 -m hpa_cellexp serve --host 0.0.0.0 --port 9000
 | `HPA_SOURCE_DIR` | `./hpa-source` | HPA ファイルの置き場（`/source` に読み取り専用でマウント） |
 | `HPA_REFERENCE_DIR` | `./reference` | **参照テーブルの置き場**（`/reference` にマウント） |
 | `HPA_CELLOSAURUS_DIR` | `./cellosaurus` | **cellosaurus.txt の置き場**（`/cellosaurus` にマウント） |
-| `HPA_CELLOSAURUS_FILE` | `/cellosaurus/cellosaurus.txt` | コンテナ内から見た cellosaurus.txt のパス |
+| `HPA_CELLOSAURUS_NAME` | `cellosaurus.txt` | そのフォルダ内の**ファイル名だけ**（パスではありません） |
 | `HPA_CELLEXP_WORKERS` | `1` | ワーカー数。DB は読み取り専用で開くため安全に増やせます |
 
 `.env.example` をコピーして `.env` を作ると、上記をまとめて設定できます。

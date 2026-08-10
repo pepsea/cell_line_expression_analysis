@@ -731,13 +731,19 @@ class ReferenceFolderTests(unittest.TestCase):
         from hpa_cellexp import __main__ as cli
 
         self.importlib.reload(cli)
-        args = cli.build_parser().parse_args(["build", "--expression", "e.tsv"])
+        args = cli.apply_config_defaults(
+            cli.build_parser().parse_args(["build", "--expression", "e.tsv"])
+        )
         self.assertEqual(args.cellosaurus, "/srv/data/cellosaurus.txt")
-        # An explicit flag still wins.
-        args = cli.build_parser().parse_args(
-            ["build", "--expression", "e.tsv", "--cellosaurus", "/other.txt"]
+        self.assertFalse(args.cellosaurus_explicit)
+        # An explicit flag still wins, and counts as explicit.
+        args = cli.apply_config_defaults(
+            cli.build_parser().parse_args(
+                ["build", "--expression", "e.tsv", "--cellosaurus", "/other.txt"]
+            )
         )
         self.assertEqual(args.cellosaurus, "/other.txt")
+        self.assertTrue(args.cellosaurus_explicit)
 
     def test_reference_dir_is_accepted_on_either_side_of_the_subcommand(self):
         from hpa_cellexp import __main__ as cli
@@ -749,6 +755,117 @@ class ReferenceFolderTests(unittest.TestCase):
         self.assertEqual(
             parser.parse_args(["organs", "--reference-dir", "/r"]).reference_dir, "/r"
         )
+
+
+class InputCheckTests(unittest.TestCase):
+    """A missing input must be reported before the load, not after it.
+
+    Reported for real: --cellosaurus pointed at a host path that does not
+    exist inside the container, and the traceback arrived AFTER streaming
+    24 million expression rows.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.expression = write(self.tmp.name, "e.tsv",
+                                "Gene name\tCell line\tnTPM\nGAPDH\tA-549\t10\n")
+        self.db = os.path.join(self.tmp.name, "x.sqlite")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _run(self, argv):
+        import contextlib
+        import io
+
+        from hpa_cellexp.__main__ import main
+
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = main(argv)
+        return code, err.getvalue()
+
+    def test_a_missing_expression_file_fails_immediately(self):
+        code, err = self._run(
+            ["build", "--database", self.db, "--expression", "/nope/rna.tsv.zip"]
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("--expression", err)
+        self.assertIn("/nope/rna.tsv.zip", err)
+        self.assertFalse(os.path.exists(self.db), "nothing should have been written")
+
+    def test_an_explicit_missing_cellosaurus_is_an_error(self):
+        code, err = self._run([
+            "build", "--database", self.db, "--expression", self.expression,
+            "--cellosaurus", "/nope/cellosaurus.txt", "--quiet",
+        ])
+        self.assertEqual(code, 1)
+        self.assertIn("--cellosaurus", err)
+        self.assertFalse(os.path.exists(self.db))
+
+    def test_a_configured_missing_cellosaurus_only_warns(self):
+        """It is a convenience default; a machine without the download should
+        still be able to build."""
+        import importlib
+
+        from hpa_cellexp import config
+
+        saved = os.environ.get("HPA_CELLEXP_CELLOSAURUS")
+        os.environ["HPA_CELLEXP_CELLOSAURUS"] = "/nope/cellosaurus.txt"
+        try:
+            importlib.reload(config)
+            from hpa_cellexp import __main__ as cli
+
+            importlib.reload(cli)
+            import contextlib
+            import io
+
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                code = cli.main(["build", "--database", self.db,
+                                 "--expression", self.expression, "--quiet"])
+            self.assertEqual(code, 0)
+            self.assertIn("continuing without it", err.getvalue())
+            self.assertTrue(os.path.exists(self.db))
+        finally:
+            if saved is None:
+                os.environ.pop("HPA_CELLEXP_CELLOSAURUS", None)
+            else:
+                os.environ["HPA_CELLEXP_CELLOSAURUS"] = saved
+            importlib.reload(config)
+            from hpa_cellexp import __main__ as cli_again
+
+            importlib.reload(cli_again)
+
+    def test_a_host_path_under_docker_explains_the_mounts(self):
+        saved = os.environ.get("HPA_CELLEXP_DB")
+        os.environ["HPA_CELLEXP_DB"] = "/data/hpa_cellexp.sqlite"
+        try:
+            code, err = self._run([
+                "build", "--database", self.db,
+                "--expression", "/Users/someone/Drive/rna_celline.tsv.zip",
+            ])
+            self.assertEqual(code, 1)
+            self.assertIn("/source/", err)
+            self.assertIn("/cellosaurus/", err)
+            self.assertIn("HPA_SOURCE_DIR", err)
+        finally:
+            if saved is None:
+                os.environ.pop("HPA_CELLEXP_DB", None)
+            else:
+                os.environ["HPA_CELLEXP_DB"] = saved
+
+    def test_every_missing_input_is_listed_at_once(self):
+        code, err = self._run([
+            "build", "--database", self.db,
+            "--expression", "/nope/rna.tsv.zip",
+            "--metadata", "/nope/meta.tsv",
+            "--tcga", "/nope/tcga.tsv",
+        ])
+        self.assertEqual(code, 1)
+        for flag in ("--expression", "--metadata", "--tcga"):
+            with self.subTest(flag=flag):
+                self.assertIn(flag, err)
 
 
 class SpeciesTests(unittest.TestCase):

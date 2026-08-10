@@ -289,11 +289,6 @@ button.dataset-chip[aria-expanded="true"] { border-color: var(--accent); color: 
 }
 .sidebar-toggle:hover { color: var(--ink); border-color: var(--axis); }
 .sidebar-toggle .chev { font-size: 10px; color: var(--ink-muted); }
-.sidebar-toggle .count {
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-muted);
-  font-size: 12px;
-}
 
 .section { padding: 14px 16px; border-bottom: 1px solid var(--grid); }
 .section:last-child { border-bottom: none; }
@@ -448,11 +443,18 @@ textarea:focus, input:focus, select:focus {
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  /* Roomier than before: the selects now carry their own labels, so the
+     grouping has to come from space rather than from a word in front. */
+  gap: 16px;
   flex-wrap: wrap;
   padding: 10px 14px;
   border-bottom: 1px solid var(--grid);
 }
+
+/* A select that names itself ("並び順: …") needs room for the prefix, but it
+   must give that room back rather than pushing the download button onto a
+   line of its own. */
+.toolbar select.labelled { flex: 0 1 auto; min-width: 7em; max-width: 22em; }
 
 .tabs { display: flex; gap: 4px; background: var(--surface-sunk); border-radius: 8px; padding: 3px; }
 .tabs button {

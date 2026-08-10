@@ -273,7 +273,8 @@ class UiTests(unittest.TestCase):
         for gone in ("log-mean", "norm-mean"):
             self.assertNotIn(gone, values)
         labels = self.page.eval_on_selector_all("#sortGene option", "e => e.map(o => o.textContent)")
-        self.assertIn("発現量割合の平均", labels)
+        # Every option is prefixed with the control's own name now.
+        self.assertTrue(any(l.endswith("発現量割合の平均") for l in labels), labels)
 
     def test_share_mean_gives_every_gene_the_same_total_weight(self):
         """Each gene's shares sum to 1 across the cell lines, so the ranking
@@ -626,16 +627,43 @@ class UiTests(unittest.TestCase):
             wide_before,
         )
 
-    def test_the_collapsed_panel_still_reports_the_match_count(self):
-        """The count lives inside the panel, so hiding it would hide the one
-        number that says what the filters are doing."""
+    def test_the_toggle_stays_a_plain_label(self):
+        """No match count on it: the button is a control, not a readout."""
         self.run_genes("GAPDH")
         self.page.wait_for_timeout(500)
-        self.assertEqual(self.page.inner_text("#sidebarCount").strip(), "")
         self.page.click("#sidebarToggle")
-        self.page.wait_for_timeout(500)
-        total = self.page.evaluate("() => state.meta.cellLineCount.toLocaleString()")
-        self.assertEqual(self.page.inner_text("#sidebarCount").strip(), total)
+        self.page.wait_for_timeout(400)
+        text = self.page.inner_text("#sidebarToggle")
+        self.assertIn("絞り込み", text)
+        self.assertNotRegex(text, r"\d")
+
+    def test_each_toolbar_select_names_itself(self):
+        """The standalone 並び順 / 基準遺伝子 / 色スケール labels are gone, so
+        the option text has to carry the name - otherwise a closed select is
+        three unlabelled dropdowns in a row."""
+        self.run_genes("ALB, KLK3")
+        self.page.select_option("#sortSelect", "value-desc")
+        self.page.wait_for_timeout(400)
+        for selector, prefix in (
+            ("#sortSelect", "並び順: "),
+            ("#sortGene", "基準遺伝子: "),
+            ("#scaleSelect", "色スケール: "),
+        ):
+            with self.subTest(control=selector):
+                shown = self.page.eval_on_selector(
+                    selector, "e => e.options[e.selectedIndex].textContent"
+                )
+                self.assertTrue(shown.startswith(prefix), shown)
+                self.assertNotEqual(shown.strip(), prefix.strip())
+        # ...and every option, not just the selected one.
+        options = self.page.eval_on_selector_all(
+            "#sortSelect option", "els => els.map(e => e.textContent)"
+        )
+        self.assertTrue(all(o.startswith("並び順: ") for o in options), options)
+
+    def test_the_download_button_is_short(self):
+        self.assertEqual(self.page.inner_text("#downloadButton").strip(), "TSV DL")
+        self.assertIn("TSV", self.page.get_attribute("#downloadButton", "title"))
 
     def test_the_collapsed_state_survives_a_reload(self):
         self.page.click("#sidebarToggle")

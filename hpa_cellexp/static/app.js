@@ -11,7 +11,7 @@
 // A stale Docker image or a cached script is otherwise invisible: the page
 // looks fine and simply behaves like an older build, which is impossible to
 // tell apart from a bug.  Keep in step with hpa_cellexp/__init__.py.
-const APP_VERSION = '1.14.0';
+const APP_VERSION = '1.15.0';
 
 // ---------------------------------------------------------------------------
 // state
@@ -34,7 +34,7 @@ const state = {
   organRank: {},     // {"Lung": 14} - canonical (anatomical) display order
   tableDirty: true,  // the table view is built lazily - it is the expensive one
   tableToken: 0,     // cancels a chunked table render that a re-sort superseded
-  matchCount: null,  // shown on the toggle while the filter panel is closed
+  matchCount: null,  // cell lines the current filters match
 };
 
 // The table shows every matching cell line.  It used to stop at 500, which
@@ -229,20 +229,11 @@ function setSidebar(open, { persist = true } = {}) {
   button.setAttribute('aria-expanded', String(open));
   button.querySelector('.chev').textContent = open ? '◀' : '▶';
   button.title = open ? '絞り込みパネルを隠す' : '絞り込みパネルを表示';
-  updateSidebarCount();
   if (persist) localStorage.setItem(SIDEBAR_KEY, open ? 'open' : 'closed');
   // The grid column only exists after a layout pass.
   requestAnimationFrame(() => renderHeatmap());
 }
 
-/** The match count, mirrored onto the toggle while the panel is closed. */
-function updateSidebarCount() {
-  const badge = $('sidebarCount');
-  if (!badge) return;
-  badge.textContent = sidebarOpen() || state.matchCount === null
-    ? ''
-    : state.matchCount.toLocaleString();
-}
 
 /** "LUAD 肺腺がん (\u03c1 0.79)" - one TCGA cohort a cell line resembles. */
 function tcgaLabel(hit) {
@@ -489,7 +480,6 @@ const refreshMatchCount = debounce(async () => {
     const data = await fetchJSON('/api/cell-lines?' + params.toString());
     state.matchCount = data.total;
     $('matchCount').innerHTML = `対象細胞株: <strong>${data.total.toLocaleString()}</strong> / ${state.meta.cellLineCount.toLocaleString()}`;
-    updateSidebarCount();
   } catch (err) {
     $('matchCount').textContent = '対象細胞株: 取得できませんでした';
   }
@@ -679,7 +669,9 @@ function populateSortGene(data) {
       SORT_BASES.forEach((basis) => {
         const option = document.createElement('option');
         option.value = basis.value;
-        option.textContent = basis.label;
+        // Prefixed like the other toolbar selects: the closed control has to
+        // say which knob it is, now that the standalone labels are gone.
+        option.textContent = '基準遺伝子: ' + basis.label;
         option.title = basis.help;
         group.append(option);
       });
@@ -694,7 +686,7 @@ function populateSortGene(data) {
     data.genes.forEach((gene, index) => {
       const option = document.createElement('option');
       option.value = String(index);
-      option.textContent = gene.symbol;
+      option.textContent = '基準遺伝子: ' + gene.symbol;
       geneParent.append(option);
     });
   }
@@ -712,7 +704,6 @@ function populateSortGene(data) {
   const multi = data.genes.length > 1;
   const byValue = state.sort.startsWith('value');
   select.hidden = !(multi && byValue);
-  $('sortGeneLabel').hidden = select.hidden;
 }
 
 /** Per-cell-line value the "expression" sorts order by: one gene, or the mean

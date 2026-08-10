@@ -96,7 +96,7 @@
       <button type="button" class="sidebar-toggle" id="sidebarToggle"
               aria-controls="controls" aria-expanded="true"
               title="絞り込みパネルの表示/非表示">
-        <span class="chev" aria-hidden="true">◀</span><span class="label">絞り込み</span><span class="count" id="sidebarCount"></span>
+        <span class="chev" aria-hidden="true">◀</span><span class="label">絞り込み</span>
       </button>
 
       <div class="tabs" role="tablist" aria-label="表示形式">
@@ -104,25 +104,26 @@
         <button type="button" role="tab" id="tabTable" aria-controls="viewTable" aria-selected="false">テーブル</button>
       </div>
 
-      <label for="sortSelect">並び順</label>
-      <select id="sortSelect">
-        <option value="organ">由来臓器 → 細胞株名</option>
-        <option value="name">細胞株名</option>
-        <option value="value-desc">発現量が高い順</option>
-        <option value="value-asc">発現量が低い順</option>
+      <!-- The label rides on the options rather than sitting beside the
+           control, so the closed select still says what it is choosing and
+           the toolbar loses three separate words of chrome. -->
+      <select id="sortSelect" class="labelled" aria-label="並び順">
+        <option value="organ">並び順: 由来臓器 → 細胞株名</option>
+        <option value="name">並び順: 細胞株名</option>
+        <option value="value-desc">並び順: 発現量が高い順</option>
+        <option value="value-asc">並び順: 発現量が低い順</option>
       </select>
 
-      <label for="sortGene" id="sortGeneLabel" hidden>基準遺伝子</label>
-      <select id="sortGene" hidden></select>
+      <select id="sortGene" class="labelled" aria-label="基準遺伝子" hidden></select>
 
-      <label for="scaleSelect">色スケール</label>
-      <select id="scaleSelect">
-        <option value="global">全遺伝子共通</option>
-        <option value="row">遺伝子ごとに正規化</option>
+      <select id="scaleSelect" class="labelled" aria-label="色スケール">
+        <option value="global">色スケール: 全遺伝子共通</option>
+        <option value="row">色スケール: 遺伝子ごとに正規化</option>
       </select>
 
       <div class="topbar-spacer"></div>
-      <button class="button secondary" type="button" id="downloadButton" disabled>TSV をダウンロード</button>
+      <button class="button secondary" type="button" id="downloadButton" disabled
+              title="表示中の結果を TSV でダウンロード">TSV DL</button>
     </div>
 
     <div class="legend" id="legend" hidden>
@@ -162,6 +163,6 @@
 
 <!-- ?v= is a cache buster: bump it with hpa_cellexp/__init__.py so an updated
      server cannot be masked by a script the browser already has. -->
-<script src="/assets/app.js?v=1.14.0"></script>
+<script src="/assets/app.js?v=1.15.0"></script>
 </body>
 </html>

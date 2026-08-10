@@ -868,6 +868,75 @@ class InputCheckTests(unittest.TestCase):
                 self.assertIn(flag, err)
 
 
+class InspectRoleTests(unittest.TestCase):
+    """inspect has to answer "which of my downloads is the metadata file?".
+
+    Reported for real: cell_line_analysis_data.tsv.zip was passed to
+    --metadata, but its columns are cell_line/analysis_type/name/z_score/
+    significant - long-format analysis output with no annotation at all, so
+    968 cell lines fell back to a TCGA-similarity guess.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        write(self.tmp.name, "cell_line_analysis_data.tsv",
+              "cell_line\tanalysis_type\tname\tz_score\tsignificant\n"
+              "A-549\tTF\tSOX2\t2.1\tyes\n")
+        write(self.tmp.name, "rna_celline.tsv",
+              "Gene\tGene name\tCell line\tnTPM\nENSG1\tGAPDH\tA-549\t100\n")
+        write(self.tmp.name, "description.tsv",
+              "Cell line\tPrimary tissue\tDisease\tSpecies\n"
+              "A-549\tlung\tLung carcinoma\tHuman\n")
+        write(self.tmp.name, "tcga.tsv",
+              "TCGA cancer\tCell line\tRank\nLUAD\tA-549\t1\n")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _inspect(self, *paths):
+        import contextlib
+        import io
+
+        from hpa_cellexp.__main__ import main
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            main(["inspect", "--rows", "1"] + list(paths))
+        return out.getvalue()
+
+    def test_an_analysis_table_is_not_offered_as_metadata(self):
+        text = self._inspect(os.path.join(self.tmp.name, "cell_line_analysis_data.tsv"))
+        self.assertIn("--metadata としては使えません", text)
+        self.assertNotIn("--metadata に使えます", text)
+
+    def test_each_real_input_is_named_for_its_flag(self):
+        text = self._inspect(self.tmp.name)
+        for filename, verdict in (
+            ("rna_celline.tsv", "--expression に使えます"),
+            ("description.tsv", "--metadata に使えます"),
+            ("tcga.tsv", "--tcga に使えます"),
+        ):
+            with self.subTest(filename=filename):
+                section = text.split("== ")[
+                    next(i for i, part in enumerate(text.split("== "))
+                         if part.startswith(os.path.join(self.tmp.name, filename)))
+                ]
+                self.assertIn(verdict, section)
+
+    def test_a_whole_folder_can_be_inspected_at_once(self):
+        text = self._inspect(self.tmp.name)
+        for filename in ("rna_celline.tsv", "description.tsv", "tcga.tsv",
+                         "cell_line_analysis_data.tsv"):
+            with self.subTest(filename=filename):
+                self.assertIn(filename, text)
+
+    def test_an_unreadable_file_does_not_stop_the_scan(self):
+        with open(os.path.join(self.tmp.name, "notes.txt"), "wb") as handle:
+            handle.write(b"\xff\xfe not a table at all")
+        text = self._inspect(self.tmp.name)
+        self.assertIn("rna_celline.tsv", text)
+
+
 class SpeciesTests(unittest.TestCase):
     """Regression: the species facet listed ヒト and Homo sapiens separately."""
 

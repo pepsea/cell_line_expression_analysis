@@ -104,12 +104,44 @@ def _run_build(args, build_database):
     )
 
 
+_TABLE_SUFFIXES = (".tsv", ".tsv.zip", ".tsv.gz", ".csv", ".txt", ".zip", ".gz")
+
+
+def _expand_inputs(paths):
+    """Accept directories as well as files.
+
+    "Which of these downloads is the metadata file?" is the question inspect
+    exists to answer, and it is much easier to ask about a whole folder.
+    """
+    out = []
+    for path in paths:
+        if os.path.isdir(path):
+            out.extend(
+                os.path.join(path, name)
+                for name in sorted(os.listdir(path))
+                if name.lower().endswith(_TABLE_SUFFIXES) and not name.startswith(".")
+            )
+        else:
+            out.append(path)
+    return out
+
+
 def _cmd_inspect(args: argparse.Namespace) -> int:
     from .sources import describe
 
-    for path in args.files:
+    paths = _expand_inputs(args.files)
+    if not paths:
+        print("no files to inspect", file=sys.stderr)
+        return 1
+    for path in paths:
         print("== {}".format(path))
-        print(describe(path, limit=args.rows))
+        if not os.path.exists(path):
+            print("  (見つかりません / not found)\n")
+            continue
+        try:
+            print(describe(path, limit=args.rows))
+        except Exception as exc:  # a stray non-table file in the folder
+            print("  読めませんでした / could not read: {}".format(exc))
         print()
     return 0
 
@@ -309,7 +341,7 @@ def build_parser() -> argparse.ArgumentParser:
     build.set_defaults(func=_cmd_build)
 
     inspect = sub.add_parser("inspect", help="print the header and first rows of input files")
-    inspect.add_argument("files", nargs="+")
+    inspect.add_argument("files", nargs="+", metavar="FILE_OR_DIR")
     inspect.add_argument("--rows", type=int, default=3)
     accept_database_after_the_subcommand(inspect)
     inspect.set_defaults(func=_cmd_inspect)

@@ -57,11 +57,18 @@ HPA のダウンロードページから取得します。`.zip` のまま使え
 
 https://www.proteinatlas.org/about/download
 
-| ファイル | 必須度 |
-|---|---|
-| `rna_celline.tsv.zip` | **必須**（発現マトリクス） |
-| `cell_line_analysis_data.tsv.zip` | 推奨（細胞株のアノテーション） |
-| `rna_cell_line_tcga_comparison.tsv.zip` | 任意（[類似がん種](#類似がん種-tcga-とは)の表示に使用） |
+| 用途 | 必要な列 | 例 |
+|---|---|---|
+| **発現マトリクス**（必須） | 細胞株名 + TPM/nTPM | `rna_celline.tsv.zip` |
+| **細胞株のアノテーション**（推奨） | 細胞株名 + 由来臓器/組織/疾患 | 下記参照 |
+| TCGA 類似度（任意） | 細胞株名 + TCGA がん種 | `rna_cell_line_tcga_comparison.tsv.zip` |
+
+> ⚠️ **`cell_line_analysis_data.tsv.zip` はアノテーションファイルではありません。**
+> 列は `cell_line / analysis_type / name / z_score / significant` で、細胞株ごとの
+> 解析結果（縦持ち）です。由来臓器も疾患も入っていないため `--metadata` に渡しても
+> 効果がなく、由来臓器の大半が TCGA 類似度からの**推定**になります。
+> HPA の配布ファイル名はリリースによって変わるので、**下記の `inspect` で
+> どれがアノテーションファイルかを確かめてから**渡してください。
 
 `cellosaurus.txt` だけは配布元が別です（約 200 MiB）。
 
@@ -94,21 +101,44 @@ ls hpa-source cellosaurus
 
 ### 3.3 列を確認する（任意）
 
+フォルダごと渡せます。**どのファイルがどのオプションに使えるか**を判定して出します。
+
 ```bash
-docker compose run --rm inspect /source/rna_cell_line_tcga_comparison.tsv.zip
+docker compose run --rm inspect /source
 ```
 
-`Cell line` と `TCGA cancer` にあたる列があれば取り込めます。
+```
+== /source/cell_line_analysis_data.tsv.zip
+columns (5): cell_line, analysis_type, name, z_score, significant
+  → 認識できた列 / recognised: cell line
+  → 細胞株名しかありません。--metadata としては使えません（由来臓器・疾患の列がない）
+
+== /source/rna_celline.tsv.zip
+columns (4): Gene, Gene name, Cell line, nTPM
+  → 認識できた列 / recognised: cell line, expression
+  → --expression に使えます
+
+== /source/rna_celline_description.tsv.zip
+columns (5): Cell line, Cellosaurus ID, Primary tissue, Disease, Species
+  → 認識できた列 / recognised: cell line, tissue, disease, species
+  → --metadata に使えます
+```
+
+`--metadata に使えます` と出たファイルを次のステップで指定します。どれも該当しない
+場合は、`--cellosaurus` に頼るか、列を `--organ-column` などで明示指定してください。
 
 ### 3.4 データベースを作る
 
 ```bash
 docker compose run --rm --build build \
   --expression /source/rna_celline.tsv.zip \
-  --metadata   /source/cell_line_analysis_data.tsv.zip \
+  --metadata   /source/<3.3 で --metadata に使えると出たファイル> \
   --tcga       /source/rna_cell_line_tcga_comparison.tsv.zip \
   --release    "HPA v24"
 ```
+
+アノテーションファイルが無い場合は `--metadata` を省いて構いません。その場合
+由来臓器は Cellosaurus（と TCGA 類似度）から埋めます。
 
 パスは**コンテナ内から見たもの**です。ホストの `HPA_SOURCE_DIR` が `/source` に
 マウントされているので、頭を `/source/` に置き換えます。

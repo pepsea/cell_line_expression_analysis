@@ -11,7 +11,7 @@
 // A stale Docker image or a cached script is otherwise invisible: the page
 // looks fine and simply behaves like an older build, which is impossible to
 // tell apart from a bug.  Keep in step with hpa_cellexp/__init__.py.
-const APP_VERSION = '1.11.0';
+const APP_VERSION = '1.12.0';
 
 // ---------------------------------------------------------------------------
 // state

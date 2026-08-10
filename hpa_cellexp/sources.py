@@ -94,8 +94,47 @@ def describe(path: str, member: Optional[str] = None, limit: int = 3) -> str:
     lines = []
     for header, rows in read_rows(path, member):
         lines.append("columns ({}): {}".format(len(header), ", ".join(header)))
+        lines.append(_role_summary(header))
         for i, row in enumerate(rows):
             if i >= limit:
                 break
             lines.append("  " + " | ".join(row))
     return "\n".join(lines)
+
+
+def _role_summary(header: Sequence[str]) -> str:
+    """Which of the fields the pipeline needs this file can supply.
+
+    "Is this the metadata file?" is otherwise answered by squinting at a list
+    of column names - and getting it wrong costs a full rebuild.
+    """
+    from . import columns as C
+
+    roles = [
+        ("cell line", C.CELL_LINE),
+        ("organ", C.ORGAN),
+        ("tissue", C.TISSUE),
+        ("disease", C.DISEASE),
+        ("species", C.SPECIES),
+        ("expression", C.NTPM),
+        ("TCGA", C.TCGA_CANCER),
+    ]
+    found = [label for label, spec in roles if C.resolve(header, spec) is not None]
+    if not found:
+        return "  → 使える列なし / no recognised fields"
+
+    verdict = "  → 認識できた列 / recognised: {}".format(", ".join(found))
+    has_cell_line = "cell line" in found
+    annotation = any(f in found for f in ("organ", "tissue", "disease", "species"))
+    if has_cell_line and annotation:
+        verdict += "\n  → --metadata に使えます"
+    elif has_cell_line and "expression" in found:
+        verdict += "\n  → --expression に使えます"
+    elif has_cell_line and "TCGA" in found:
+        verdict += "\n  → --tcga に使えます"
+    elif has_cell_line:
+        verdict += (
+            "\n  → 細胞株名しかありません。--metadata としては使えません"
+            "（由来臓器・疾患の列がない）"
+        )
+    return verdict

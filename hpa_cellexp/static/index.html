@@ -104,21 +104,26 @@
         <button type="button" role="tab" id="tabTable" aria-controls="viewTable" aria-selected="false">テーブル</button>
       </div>
 
-      <!-- The label rides on the options rather than sitting beside the
-           control, so the closed select still says what it is choosing and
-           the toolbar loses three separate words of chrome. -->
+      <!-- The control's name is the optgroup heading inside the list: bold,
+           not selectable, and it costs no room in the toolbar.  aria-label
+           carries the same name for assistive tech, which does not read a
+           group heading as the control's own name. -->
       <select id="sortSelect" class="labelled" aria-label="並び順">
-        <option value="organ">並び順: 由来臓器 → 細胞株名</option>
-        <option value="name">並び順: 細胞株名</option>
-        <option value="value-desc">並び順: 発現量が高い順</option>
-        <option value="value-asc">並び順: 発現量が低い順</option>
+        <optgroup label="並び順">
+          <option value="organ">由来臓器 → 細胞株名</option>
+          <option value="name">細胞株名</option>
+          <option value="value-desc">発現量が高い順</option>
+          <option value="value-asc">発現量が低い順</option>
+        </optgroup>
       </select>
 
       <select id="sortGene" class="labelled" aria-label="基準遺伝子" hidden></select>
 
       <select id="scaleSelect" class="labelled" aria-label="色スケール">
-        <option value="global">色スケール: 全遺伝子共通</option>
-        <option value="row">色スケール: 遺伝子ごとに正規化</option>
+        <optgroup label="色スケール">
+          <option value="global">全遺伝子共通</option>
+          <option value="row">遺伝子ごとに正規化</option>
+        </optgroup>
       </select>
 
       <div class="topbar-spacer"></div>
@@ -163,6 +168,6 @@
 
 <!-- ?v= is a cache buster: bump it with hpa_cellexp/__init__.py so an updated
      server cannot be masked by a script the browser already has. -->
-<script src="/assets/app.js?v=1.15.0"></script>
+<script src="/assets/app.js?v=1.15.1"></script>
 </body>
 </html>

@@ -11,7 +11,7 @@
 // A stale Docker image or a cached script is otherwise invisible: the page
 // looks fine and simply behaves like an older build, which is impossible to
 // tell apart from a bug.  Keep in step with hpa_cellexp/__init__.py.
-const APP_VERSION = '1.15.0';
+const APP_VERSION = '1.15.1';
 
 // ---------------------------------------------------------------------------
 // state
@@ -665,28 +665,32 @@ function populateSortGene(data) {
     select.innerHTML = '';
     if (data.genes.length > 1) {
       const group = document.createElement('optgroup');
-      group.label = '全遺伝子をまとめて';
+      // Named after the control, like the static selects: the heading is bold
+      // and unselectable, so it labels without taking toolbar space.
+      group.label = '基準遺伝子 · 全遺伝子をまとめて';
       SORT_BASES.forEach((basis) => {
         const option = document.createElement('option');
         option.value = basis.value;
-        // Prefixed like the other toolbar selects: the closed control has to
-        // say which knob it is, now that the standalone labels are gone.
-        option.textContent = '基準遺伝子: ' + basis.label;
+        option.textContent = basis.label;
         option.title = basis.help;
         group.append(option);
       });
       select.append(group);
       const genes = document.createElement('optgroup');
-      genes.label = '個別の遺伝子';
+      genes.label = '基準遺伝子 · 個別の遺伝子';
       select.append(genes);
     }
-    const geneParent = select.lastElementChild && select.lastElementChild.tagName === 'OPTGROUP'
-      ? select.lastElementChild
-      : select;
+    let geneParent = select.lastElementChild;
+    if (!geneParent || geneParent.tagName !== 'OPTGROUP') {
+      // One gene: no aggregate bases, but the heading still names the control.
+      geneParent = document.createElement('optgroup');
+      geneParent.label = '基準遺伝子';
+      select.append(geneParent);
+    }
     data.genes.forEach((gene, index) => {
       const option = document.createElement('option');
       option.value = String(index);
-      option.textContent = '基準遺伝子: ' + gene.symbol;
+      option.textContent = gene.symbol;
       geneParent.append(option);
     });
   }

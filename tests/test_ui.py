@@ -273,8 +273,7 @@ class UiTests(unittest.TestCase):
         for gone in ("log-mean", "norm-mean"):
             self.assertNotIn(gone, values)
         labels = self.page.eval_on_selector_all("#sortGene option", "e => e.map(o => o.textContent)")
-        # Every option is prefixed with the control's own name now.
-        self.assertTrue(any(l.endswith("発現量割合の平均") for l in labels), labels)
+        self.assertIn("発現量割合の平均", labels)
 
     def test_share_mean_gives_every_gene_the_same_total_weight(self):
         """Each gene's shares sum to 1 across the cell lines, so the ranking
@@ -637,29 +636,58 @@ class UiTests(unittest.TestCase):
         self.assertIn("絞り込み", text)
         self.assertNotRegex(text, r"\d")
 
-    def test_each_toolbar_select_names_itself(self):
-        """The standalone 並び順 / 基準遺伝子 / 色スケール labels are gone, so
-        the option text has to carry the name - otherwise a closed select is
-        three unlabelled dropdowns in a row."""
+    def test_each_toolbar_select_names_itself_in_a_group_heading(self):
+        """The standalone 並び順 / 基準遺伝子 / 色スケール labels are gone.  The
+        name is now the optgroup heading inside the list - bold and not
+        selectable - so it labels the control without taking toolbar space."""
         self.run_genes("ALB, KLK3")
         self.page.select_option("#sortSelect", "value-desc")
         self.page.wait_for_timeout(400)
-        for selector, prefix in (
-            ("#sortSelect", "並び順: "),
-            ("#sortGene", "基準遺伝子: "),
-            ("#scaleSelect", "色スケール: "),
+
+        for selector, name in (
+            ("#sortSelect", "並び順"),
+            ("#scaleSelect", "色スケール"),
+            ("#sortGene", "基準遺伝子"),
         ):
             with self.subTest(control=selector):
-                shown = self.page.eval_on_selector(
-                    selector, "e => e.options[e.selectedIndex].textContent"
+                groups = self.page.eval_on_selector_all(
+                    selector + " optgroup", "els => els.map(e => e.label)"
                 )
-                self.assertTrue(shown.startswith(prefix), shown)
-                self.assertNotEqual(shown.strip(), prefix.strip())
-        # ...and every option, not just the selected one.
-        options = self.page.eval_on_selector_all(
-            "#sortSelect option", "els => els.map(e => e.textContent)"
+                self.assertTrue(groups, "{}: no group heading".format(selector))
+                self.assertTrue(
+                    all(g.startswith(name) for g in groups),
+                    "{}: {}".format(selector, groups),
+                )
+                # Every option sits under a heading, and none repeats it.
+                loose = self.page.eval_on_selector_all(
+                    selector + " > option", "els => els.map(e => e.textContent)"
+                )
+                self.assertEqual(loose, [], "{}: option outside a group".format(selector))
+                labels = self.page.eval_on_selector_all(
+                    selector + " option", "els => els.map(e => e.textContent)"
+                )
+                self.assertTrue(all(name not in l for l in labels), labels)
+                self.assertEqual(self.page.get_attribute(selector, "aria-label"), name)
+
+        self.assertEqual(
+            self.page.eval_on_selector(
+                "#sortSelect", "e => e.options[e.selectedIndex].textContent"
+            ),
+            "発現量が高い順",
         )
-        self.assertTrue(all(o.startswith("並び順: ") for o in options), options)
+
+    def test_a_single_gene_still_gets_the_heading(self):
+        """With one gene there are no aggregate bases, so the select would
+        otherwise have bare options and no name at all."""
+        self.run_genes("ALB, KLK3")
+        self.page.select_option("#sortSelect", "value-desc")
+        self.page.wait_for_timeout(300)
+        self.run_genes("ALB")
+        self.page.wait_for_timeout(300)
+        groups = self.page.eval_on_selector_all(
+            "#sortGene optgroup", "els => els.map(e => e.label)"
+        )
+        self.assertEqual(groups, ["基準遺伝子"])
 
     def test_the_download_button_is_short(self):
         self.assertEqual(self.page.inner_text("#downloadButton").strip(), "TSV DL")

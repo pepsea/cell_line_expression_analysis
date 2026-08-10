@@ -689,6 +689,28 @@ class UiTests(unittest.TestCase):
         )
         self.assertEqual(groups, ["基準遺伝子"])
 
+    def test_the_site_name_is_a_way_home(self):
+        """Clicking the title drops the hash, so the page comes back with no
+        genes, no filters and no sort."""
+        title = self.page.locator(".topbar h1 a")
+        self.assertEqual(
+            title.inner_text().strip(), "Human Cell Line Gene Expression Profiler"
+        )
+        self.assertEqual(self.page.title(), "Human Cell Line Gene Expression Profiler")
+
+        self.run_genes("ALB, KLK3")
+        self.page.select_option("#sortSelect", "name")
+        self.page.wait_for_timeout(600)
+        self.assertNotEqual(self.page.evaluate("() => location.hash"), "")
+
+        title.click()
+        self.page.wait_for_load_state("networkidle")
+        self.page.wait_for_timeout(400)
+        self.assertEqual(self.page.evaluate("() => location.hash"), "")
+        self.assertEqual(self.page.evaluate("() => location.pathname"), "/")
+        self.assertEqual(self.page.input_value("#geneInput"), "")
+        self.assertTrue(self.page.locator("#hmViewport").is_hidden())
+
     def test_the_download_button_is_short(self):
         self.assertEqual(self.page.inner_text("#downloadButton").strip(), "TSV DL")
         self.assertIn("TSV", self.page.get_attribute("#downloadButton", "title"))

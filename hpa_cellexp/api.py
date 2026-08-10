@@ -70,7 +70,7 @@ def _tcga_summary(hits: List[Dict[str, Any]]) -> str:
 
 def create_app(db_path: str = DEFAULT_DB_PATH) -> FastAPI:
     app = FastAPI(
-        title="HPA Cell Line Expression Explorer",
+        title="Human Cell Line Gene Expression Profiler",
         description="Gene expression across human cell lines, from Human Protein Atlas data.",
         version=__version__,
     )

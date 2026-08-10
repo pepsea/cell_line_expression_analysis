@@ -1,5 +1,5 @@
 /* ==========================================================================
-   HPA Cell Line Expression Explorer
+   Human Cell Line Gene Expression Profiler
    Palette: validated reference instance (sequential blue ramp for the
    heatmap; chrome/ink tokens for everything else).  Light values live on bare
    :root; dark values are declared under BOTH the OS media query and the
@@ -127,6 +127,14 @@ a { color: var(--accent); }
   margin: 0;
   letter-spacing: 0.01em;
 }
+
+/* A link, but the site name should not read as one until pointed at. */
+.topbar h1 a {
+  color: inherit;
+  text-decoration: none;
+}
+.topbar h1 a:hover { text-decoration: underline; }
+.topbar h1 a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
 
 .topbar .sub {
   font-size: 12px;

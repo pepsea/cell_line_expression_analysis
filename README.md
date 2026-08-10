@@ -1,7 +1,8 @@
-# HPA 細胞株 遺伝子発現エクスプローラー
+# Human Cell Line Gene Expression Profiler
 
 Human Protein Atlas (HPA) の **cell line RNA-seq データ**を使って、
 「どの遺伝子が、どの細胞株に、どれくらい発現しているのか」を調べる Web アプリです。
+画面左上のサイト名をクリックすると、条件をリセットしてトップに戻ります。
 
 - **遺伝子は複数まとめて入力できます** — シンボル (`EGFR`) でも Ensembl ID
   (`ENSG00000146648`) でも、カンマ・空白・改行のどれで区切っても構いません。

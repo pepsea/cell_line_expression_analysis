@@ -1,4 +1,4 @@
-/* HPA Cell Line Expression Explorer - front end.
+/* Human Cell Line Gene Expression Profiler - front end.
  *
  * No build step and no dependencies: the page is served straight from
  * hpa_cellexp/static.  The heatmap is drawn on a single canvas sized to the
@@ -11,7 +11,7 @@
 // A stale Docker image or a cached script is otherwise invisible: the page
 // looks fine and simply behaves like an older build, which is impossible to
 // tell apart from a bug.  Keep in step with hpa_cellexp/__init__.py.
-const APP_VERSION = '1.15.1';
+const APP_VERSION = '1.16.0';
 
 // ---------------------------------------------------------------------------
 // state
